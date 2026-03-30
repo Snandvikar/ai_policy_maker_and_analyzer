@@ -2,7 +2,7 @@ import pandas as pd
 import duckdb
 import re
 
-excel_file = "data/India_10City_Consolidated_Tables.xlsx"
+excel_file = "data/India_54City_Master_Yearwise.xlsx"
 duckdb_file = "database.duckdb"
 
 conn = duckdb.connect(duckdb_file)
@@ -72,6 +72,29 @@ def make_unique_columns(columns):
     
     return new_cols
 
+def convert_numeric_columns(df):
+    
+    for col in df.columns:
+        
+        if df[col].dtype == "object":
+            
+            cleaned = (
+                df[col]
+                .astype(str)
+                .str.replace(",", "", regex=False)
+                .str.replace("%", "", regex=False)
+                .str.replace("₹", "", regex=False)
+                .str.strip()
+            )
+            
+            numeric = pd.to_numeric(cleaned, errors="coerce")
+            
+            # Convert only if most values are numeric
+            if numeric.notna().sum() > len(df) * 0.5:
+                df[col] = numeric
+    
+    return df
+
 excel = pd.ExcelFile(excel_file)
 
 for sheet in excel.sheet_names:
@@ -84,8 +107,14 @@ for sheet in excel.sheet_names:
     df.columns = [clean_column_name(c) for c in df.columns]
     df.columns = make_unique_columns(df.columns)
     
+    # Convert numeric values
+    df = convert_numeric_columns(df)
+    
     # Clean table name
     table_name = clean_table_name(sheet)
+
+    if (table_name == "source_references") :
+        continue
     
     # Drop empty columns
     df = df.dropna(axis=1, how="all")
@@ -93,16 +122,18 @@ for sheet in excel.sheet_names:
     # Dump to DuckDB
     conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
 
+    print(f"table - {table_name}: colums - {df.columns.tolist()}")
+
 print("table creation completed")
 
-infrastructure_cell_towers = conn.execute("SELECT * FROM infrastructure_cell_towers LIMIT 5").df()
-print("cell towers columns:", infrastructure_cell_towers.columns)
+# infrastructure_cell_towers = conn.execute("SELECT * FROM infrastructure_cell_towers LIMIT 5").df()
+# print("cell towers columns:", infrastructure_cell_towers.columns)
 
-infrastructure_fiber_and_ofc = conn.execute("SELECT * FROM infrastructure_fiber_and_ofc LIMIT 5").df()
-print("fiber and OFC columns:", infrastructure_fiber_and_ofc.columns)
+# infrastructure_fiber_and_ofc = conn.execute("SELECT * FROM infrastructure_fiber_and_ofc LIMIT 5").df()
+# print("fiber and OFC columns:", infrastructure_fiber_and_ofc.columns)
 
-socio_economic_indicators = conn.execute("SELECT * FROM socio_economic_indicators LIMIT 5").df()
-print("socio economic indicators columns:", socio_economic_indicators.columns)
+# socio_economic_indicators = conn.execute("SELECT * FROM socio_economic_indicators LIMIT 5").df()
+# print("socio economic indicators columns:", socio_economic_indicators.columns)
 
-digital_literacy = conn.execute("SELECT * FROM digital_literacy LIMIT 5").df()
-print("digital literacy columns:", digital_literacy.columns)
+# digital_literacy = conn.execute("SELECT * FROM digital_literacy LIMIT 5").df()
+# print("digital literacy columns:", digital_literacy.columns)
