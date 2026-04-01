@@ -1,12 +1,12 @@
 import duckdb
 
-excel_file = "data/India_10City_Consolidated_Tables.xlsx"
+# excel_file = "data/India_10City_Consolidated_Tables.xlsx"
 duckdb_file = "database.duckdb"
 
 conn = duckdb.connect(duckdb_file)
 
-print(conn.execute("SHOW TABLES").df())
-# print(conn.execute("DESC TABLE infrastructure_fiber_and_ofc").df())
+# print(conn.execute("SHOW TABLES").df())
+print(conn.execute("select * from mci_scores limit 1").df()['MCI_class_sort'])
 
 # infrastructure_cell_towers = conn.execute("SELECT * FROM infrastructure_cell_towers LIMIT 5").df()
 # print("infrastructure_cell_towers  columns:", infrastructure_cell_towers.columns)

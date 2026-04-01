@@ -1,265 +1,281 @@
-import streamlit as st
-import duckdb
-import pandas as pd
-import plotly.express as px
+"""
+dashboard/app.py
+=================
+Main Streamlit entry point for the MCI Digital Desert Dashboard.
 
-# -----------------------------
-# Page Config
-# -----------------------------
+Run:
+    streamlit run dashboard/app.py
+
+Install:
+    pip install streamlit plotly duckdb pandas scikit-learn requests --break-system-packages
+
+For the AI chatbot, install Ollama and pull models:
+    ollama pull mistral
+    ollama pull llama3.1
+    ollama serve
+"""
+
+import streamlit as st
+import pandas as pd
+
+from config import FACTOR_LABELS
+from dashboard.filters import load_all_data, render_sidebar, apply_filters
+from dashboard.charts import (
+    classification_bar, factor_avg_bar, mci_scatter,
+    wsi_wei_quadrant, cluster_centroid_chart,
+    rf_importance_bar, spearman_heatmap,
+)
+from dashboard.area_detail import render_area_detail
+from dashboard.chatbot import render_chatbot
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Telecom Digital Divide Dashboard",
-    layout="wide"
+    page_title="MCI Dashboard — Digital Desert Index",
+    page_icon="📡",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.title("📡 Digital Connectivity & Telecom Analytics Dashboard")
 
-# -----------------------------
-# Connect to DuckDB
-# -----------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# LOAD DATA
+# ─────────────────────────────────────────────────────────────────────────────
 
-@st.cache(allow_output_mutation=True)
-def get_connection():
-    return duckdb.connect("database.duckdb")
-
-conn = get_connection()
-
-
-# -----------------------------
-# Load Data
-# -----------------------------
-
-@st.cache(allow_output_mutation=True)
-def load_data():
-    
-    cell_towers = conn.execute("SELECT * FROM cell_towers").df()
-    fiber = conn.execute("SELECT * FROM infrastructure_fiber_and_ofc").df()
-    socio = conn.execute("SELECT * FROM socio_economic_indicators").df()
-    digital = conn.execute("SELECT * FROM digital_literacy").df()
-    
-    return cell_towers, fiber, socio, digital
-
-cell_towers, fiber, socio, digital = load_data()
+data = load_all_data()
+scores_df      = data["scores"]
+timeseries_df  = data["timeseries"]
+sub_df         = data["subcomponents"]
+imp_df         = data["importance"]
+cluster_df     = data["clusters"]
 
 
-# -----------------------------
-# Sidebar Filters
-# -----------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# SIDEBAR + FILTERS
+# ─────────────────────────────────────────────────────────────────────────────
 
-st.sidebar.header("Filters")
+filters     = render_sidebar(scores_df)
+filtered_df = apply_filters(scores_df, filters)
+n_total     = len(filtered_df)
 
-city = st.sidebar.selectbox(
-    "Select City",
-    sorted(cell_towers["city"].dropna().unique())
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HEADER
+# ─────────────────────────────────────────────────────────────────────────────
+
+st.markdown("# 📡 Digital Desert Dashboard")
+st.markdown(
+    "**Minimum Connectivity Index (MCI)** — identifying digital deserts "
+    "and their impact on women's safety and employment across India."
+)
+st.markdown("---")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KPI ROW
+# ─────────────────────────────────────────────────────────────────────────────
+
+n_deserts  = len(filtered_df[filtered_df["MCI_class"].isin(["Severe desert", "Moderate desert"])])
+n_severe   = len(filtered_df[filtered_df["MCI_class"] == "Severe desert"])
+avg_mci    = filtered_df["MCI"].mean() if n_total else 0
+avg_wsi    = filtered_df["WSI"].mean() if n_total else 0
+avg_wei    = filtered_df["WEI"].mean() if n_total else 0
+high_risk  = (len(filtered_df[filtered_df["Safety_risk"] == "High safety risk"])
+              if "Safety_risk" in filtered_df.columns else 0)
+
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1.metric("Areas",               n_total)
+c2.metric("Digital deserts",     n_deserts,
+          delta=f"{n_severe} severe", delta_color="inverse")
+c3.metric("Avg MCI",             f"{avg_mci:.1f}")
+c4.metric("Avg WSI",             f"{avg_wsi:.1f}",
+          help="Women Safety Index — lower = higher risk")
+c5.metric("Avg WEI",             f"{avg_wei:.1f}",
+          help="Women Employment Index — lower = fewer opportunities")
+c6.metric("High safety risk",    high_risk,
+          delta_color="inverse")
+
+st.markdown("---")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROW 1 — Classification distribution + Factor averages
+# ─────────────────────────────────────────────────────────────────────────────
+
+col_l, col_r = st.columns(2)
+with col_l:
+    st.markdown("#### Area classification breakdown")
+    st.plotly_chart(classification_bar(filtered_df), use_container_width=True)
+with col_r:
+    st.markdown("#### Average factor scores")
+    if n_total:
+        st.plotly_chart(factor_avg_bar(filtered_df), use_container_width=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROW 2 — MCI scatter + WSI/WEI quadrant
+# ─────────────────────────────────────────────────────────────────────────────
+
+col_l2, col_r2 = st.columns(2)
+with col_l2:
+    st.markdown("#### MCI by area")
+    if n_total:
+        st.plotly_chart(mci_scatter(filtered_df), use_container_width=True)
+with col_r2:
+    st.markdown("#### WSI vs WEI — women impact quadrant")
+    if n_total and "WSI" in filtered_df.columns:
+        st.plotly_chart(wsi_wei_quadrant(filtered_df), use_container_width=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROW 3 — Area table
+# ─────────────────────────────────────────────────────────────────────────────
+
+st.markdown("---")
+st.markdown("#### Area-level scores")
+
+if n_total:
+    display_cols = ["area", "city", "state", "city_tier",
+                    "MCI", "IFS", "DLS", "SES", "WDI",
+                    "WSI", "WEI", "MCI_class", "cluster_label"]
+    display_cols = [c for c in display_cols if c in filtered_df.columns]
+    table_df = filtered_df[display_cols].copy()
+    for col in ["MCI","IFS","DLS","SES","WDI","WSI","WEI"]:
+        if col in table_df.columns:
+            table_df[col] = table_df[col].round(1)
+
+    def color_score(val):
+        if val < 25:   color = "#E24B4A"
+        elif val < 45: color = "#EF9F27"
+        elif val < 60: color = "#378ADD"
+        elif val < 75: color = "#639922"
+        else:          color = "#1D9E75"
+        return f"background-color:{color}18;color:{color};font-weight:500"
+
+    score_cols = [c for c in ["MCI","IFS","DLS","SES","WDI","WSI","WEI"]
+                  if c in table_df.columns]
+    styled = table_df.style.applymap(color_score, subset=score_cols)
+    st.dataframe(styled, height=320)
+else:
+    st.info("No areas match the current filters.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROW 4 — Area drill-down
+# ─────────────────────────────────────────────────────────────────────────────
+
+st.markdown("---")
+st.markdown("#### Area drill-down")
+
+selected_area_scores = None   # injected into chatbot for context
+
+area_options = (
+    filtered_df
+    .apply(lambda r: f"{r['area']} — {r['city']}", axis=1)
+    .tolist()
 )
 
-district = st.sidebar.selectbox(
-    "Select District",
-    sorted(cell_towers["district"].dropna().unique())
+if area_options:
+    selected_str  = st.selectbox("Select area to inspect", ["— select —"] + area_options)
+    if selected_str != "— select —":
+        area_name = selected_str.split(" — ")[0]
+        city_name = selected_str.split(" — ")[1]
+        row = filtered_df[
+            (filtered_df["area"] == area_name) &
+            (filtered_df["city"] == city_name)
+        ]
+        if not row.empty:
+            area_row_dict = row.iloc[0].to_dict()
+            selected_area_scores = area_row_dict
+
+            render_area_detail(
+                area_row=area_row_dict,
+                sub_df=sub_df,
+                timeseries_df=timeseries_df,
+            )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROW 5 — Cluster profiles
+# ─────────────────────────────────────────────────────────────────────────────
+
+st.markdown("---")
+st.markdown("#### Connectivity profile clusters")
+
+if not cluster_df.empty:
+    st.plotly_chart(cluster_centroid_chart(cluster_df), use_container_width=True)
+
+    CLUSTER_COLORS = ["#E24B4A","#EF9F27","#378ADD","#7F77DD","#1D9E75","#639922","#D4537E"]
+    c_cols = st.columns(min(3, len(cluster_df)))
+    for i, (_, cl) in enumerate(cluster_df.iterrows()):
+        cc = CLUSTER_COLORS[i % len(CLUSTER_COLORS)]
+        with c_cols[i % len(c_cols)]:
+            st.markdown(
+                f"<div style='border-left:3px solid {cc};padding:.6rem .8rem;"
+                f"background:{cc}08;border-radius:0 8px 8px 0;margin-bottom:8px'>"
+                f"<div style='font-size:13px;font-weight:600;color:{cc}'>{cl['label']}</div>"
+                f"<div style='font-size:11px;color:gray;margin:.3rem 0'>"
+                f"{cl['area_count']} area{'s' if cl['area_count']!=1 else ''} · "
+                f"avg score {cl['mean_score']:.0f}</div>"
+                f"<div style='font-size:12px;margin-bottom:.4rem'>{cl['intervention']}</div>"
+                f"<div style='font-size:11px;color:gray'>Areas: {cl['area_list']}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROW 6 — RF Feature importance
+# ─────────────────────────────────────────────────────────────────────────────
+
+st.markdown("---")
+st.markdown("#### Intervention levers — random forest feature importance")
+st.caption(
+    "Variables ranked by their contribution to predicting MCI. "
+    "Higher importance = higher-leverage policy intervention target."
 )
-
-# Filter Data
-
-cell_filtered = cell_towers[
-    (cell_towers["city"] == city) &
-    (cell_towers["district"] == district)
-]
-
-fiber_filtered = fiber[
-    (fiber["city"] == city) &
-    (fiber["district"] == district)
-]
-
-socio_filtered = socio[
-    (socio["city"] == city) &
-    (socio["district"] == district)
-]
-
-digital_filtered = digital[
-    (digital["city"] == city) &
-    (digital["district"] == district)
-]
-
-
-# -----------------------------
-# KPI Section
-# -----------------------------
-
-st.subheader("📊 Key Metrics")
-
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric(
-    "Total Towers",
-    int(cell_filtered["total_towers"].values[0])
-)
-
-col2.metric(
-    "5G BTS",
-    int(cell_filtered["5g_bts"].values[0])
-)
-
-col3.metric(
-    "Fiber Coverage %",
-    round(cell_filtered["bts_fiberized_percent"].values[0], 2)
-)
-
-col4.metric(
-    "Median Download Speed",
-    round(cell_filtered["dl_median_mbps"].values[0], 2)
-)
-
-# -----------------------------
-# Infrastructure Section
-# -----------------------------
-
-st.subheader("📡 Infrastructure Distribution")
-
-fig = px.bar(
-    cell_towers,
-    x="district",
-    y="total_towers",
-    color="city",
-    title="Tower Distribution by District"
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# -----------------------------
-# 5G Analysis
-# -----------------------------
-
-st.subheader("📶 5G Rollout")
-
-fig_5g = px.scatter(
-    cell_towers,
-    x="towers_per_km2",
-    y="5g_bts",
-    color="city",
-    size="population_m",
-    hover_data=["district"]
-)
-
-st.plotly_chart(fig_5g, use_container_width=True)
-
-# -----------------------------
-# Fiber Section
-# -----------------------------
-
-st.subheader("🧵 Fiber Infrastructure")
-
-fig_fiber = px.bar(
-    fiber,
-    x="district",
-    y="ofc_total_km",
-    color="city"
-)
-
-st.plotly_chart(fig_fiber, use_container_width=True)
-
-
-# -----------------------------
-# Digital Literacy Section
-# -----------------------------
-
-st.subheader("👩‍💻 Digital Literacy")
-
-fig_digital = px.scatter(
-    digital,
-    x="hh_internet_percent",
-    y="digital_skill_percent",
-    color="city",
-    size="slum_pop_percent",
-    hover_data=["district"]
-)
-
-st.plotly_chart(fig_digital, use_container_width=True)
-
-
-# -----------------------------
-# Socio Economic Section
-# -----------------------------
-
-st.subheader("📉 Socio Economic Insights")
-
-fig_socio = px.scatter(
-    socio,
-    x="gdp_per_capita_rs_lakh",
-    y="literacy_rate_percent",
-    color="city",
-    size="poverty_rate_percent",
-    hover_data=["district"]
-)
-
-st.plotly_chart(fig_socio, use_container_width=True)
-
-
-# -----------------------------
-# Digital Divide Section
-# -----------------------------
-
-st.subheader("⚡ Digital Divide Analysis")
-
-merged = digital.merge(
-    socio,
-    on=["city", "district", "area"],
-    how="inner"
-)
-
-fig_divide = px.scatter(
-    merged,
-    x="poverty_rate_percent",
-    y="hh_internet_percent",
-    color="city",
-    size="slum_pop_percent"
-)
-
-st.plotly_chart(fig_divide, use_container_width=True)
-
-
-# -----------------------------
-# AI Agent Section
-# -----------------------------
-
-st.subheader("🤖 Ask AI Agent")
-
-query = st.text_input("Ask about telecom data")
-
-if st.button("Ask"):
-
-    # placeholder for your agent
-    response = f"Agent response for: {query}"
-    
-    st.write(response)
-
-    # Example dynamic chart
-    fig_agent = px.bar(
-        cell_towers,
-        x="district",
-        y="dl_median_mbps"
+if not imp_df.empty:
+    st.plotly_chart(rf_importance_bar(imp_df), use_container_width=True)
+    st.info(
+        "**Key finding:** Household internet access and women's digital skills "
+        "are the top predictors of MCI — tower density ranks last. "
+        "Demand-side interventions (skilling, access programmes) "
+        "are higher-leverage than supply-side infrastructure alone."
     )
 
-    st.plotly_chart(fig_agent, use_container_width=True)
 
-# -----------------------------
-# Raw Data Viewer
-# -----------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# ROW 7 — Spearman heatmap
+# ─────────────────────────────────────────────────────────────────────────────
 
-st.subheader("📄 Raw Data")
-
-table_select = st.selectbox(
-    "Select Table",
-    ["cell_towers", "fiber", "digital", "socio"]
+st.markdown("---")
+st.markdown("#### Factor Spearman correlation matrix")
+st.caption(
+    "DLS↔WDI and DLS↔SES are expected to be highly correlated. "
+    "They are kept separate for policy-narrative clarity despite data overlap."
 )
+if n_total >= 5:
+    st.plotly_chart(spearman_heatmap(filtered_df), use_container_width=True)
 
-if table_select == "cell_towers":
-    st.dataframe(cell_towers)
 
-elif table_select == "fiber":
-    st.dataframe(fiber)
+# ─────────────────────────────────────────────────────────────────────────────
+# CHATBOT
+# ─────────────────────────────────────────────────────────────────────────────
 
-elif table_select == "digital":
-    st.dataframe(digital)
+render_chatbot(selected_area_scores=selected_area_scores)
 
-else:
-    st.dataframe(socio)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FOOTER
+# ─────────────────────────────────────────────────────────────────────────────
+
+st.markdown("---")
+st.caption(
+    "MCI = weighted geometric mean: IFS×0.35, DLS×0.30, SES×0.20, WDI×0.15. "
+    "Normalisation anchored to baseline year p5/p95 for cross-year comparability. "
+    "WSI/WEI: 40% MCI + 60% domain-specific factors. "
+    "Chatbot: Mistral (data queries) + LLaMA 3.1 (policy) via Ollama."
+)
