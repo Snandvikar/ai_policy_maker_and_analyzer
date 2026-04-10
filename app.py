@@ -18,7 +18,7 @@ st.title("📡 Digital Connectivity & Telecom Analytics Dashboard")
 # Connect to DuckDB
 # -----------------------------
 
-@st.cache(allow_output_mutation=True)
+@st.cache_resource
 def get_connection():
     return duckdb.connect("database.duckdb")
 
@@ -29,10 +29,10 @@ conn = get_connection()
 # Load Data
 # -----------------------------
 
-@st.cache(allow_output_mutation=True)
+@st.cache_data
 def load_data():
     
-    cell_towers = conn.execute("SELECT * FROM cell_towers").df()
+    cell_towers = conn.execute("SELECT * FROM infrastructure_cell_towers").df()
     fiber = conn.execute("SELECT * FROM infrastructure_fiber_and_ofc").df()
     socio = conn.execute("SELECT * FROM socio_economic_indicators").df()
     digital = conn.execute("SELECT * FROM digital_literacy").df()
