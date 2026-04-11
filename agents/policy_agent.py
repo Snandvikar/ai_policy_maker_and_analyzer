@@ -17,6 +17,7 @@ orchestrator and reasons over it to generate impact analysis + recommendations.
 from __future__ import annotations
 import logging
 from typing import Optional
+from vector_db.retriever import retrieve_policy_context
 
 import requests
 
@@ -79,6 +80,13 @@ OUTPUT FORMAT (always follow this):
 
 **Priority:**
 [1 sentence on the single most important first step]
+
+**Priority order of information to use from context (if relevant to the question):**
+1. Area Scores (PRIMARY)
+2. Cluster Context (PRIMARY)
+3. Trend Analysis (PRIMARY)
+4. RF Feature Importance (PRIMARY)
+5. Reference Policies (SECONDARY — 25%)
 """
 
 
@@ -196,7 +204,7 @@ def _call_ollama_policy(context: str, user_question: str) -> Optional[str]:
                 "stream": False,
                 "options": {"temperature": 0.3, "num_predict": 1024},
             },
-            timeout=90,
+            timeout=600,
         )
         resp.raise_for_status()
         return resp.json()["message"]["content"]
@@ -310,9 +318,14 @@ class PolicyAgent:
         )
         top_features = self._get_top_features()
 
+        policy_context = retrieve_policy_context(user_question)
+
         context = _assemble_context(
             area_scores, cluster_info, trend_data, top_features
         )
+
+        context += """ REFERENCE POLICY EXAMPLES (Use as inspiration only. Do NOT rely heavily):"""
+        context += policy_context
 
         # Rule-based suggestions (always computed — used as fallback or supplement)
         rule_suggestions = get_suggestions(area_scores)

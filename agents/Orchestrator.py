@@ -146,7 +146,7 @@ class Orchestrator:
         Returns unified response dict (see _format_* functions above).
         """
         intent = classify_intent(message)
-        logger.info(f"[orchestrator] intent={intent.value} | question='{message[:60]}'")
+        logger.info(f"[orchestrator] intent={intent.value} | question='{message}'")
 
         # ── Ambiguous: if area is selected, lean toward policy; else data ──
         if intent == Intent.AMBIGUOUS:

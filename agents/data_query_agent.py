@@ -47,7 +47,7 @@ STRICT RULES:
 6. For trend queries, use mci_timeseries_scores and ORDER BY year ASC.
 7. For comparisons between cities/areas, use mci_scores (latest year).
 8. Round all decimal scores to 1 decimal place using ROUND(col, 1).
-9. If a question cannot be answered from the schema, return:
+9. If a question cannot be answered from the given schemas, return:
    {{"sql": "SELECT 'No matching data found' AS message", "chart_type": "none"}}
 
 EXAMPLE OUTPUTS:
@@ -80,7 +80,7 @@ def _call_ollama(prompt: str, system: str, model: str) -> Optional[str]:
                 "stream": False,
                 "options": {"temperature": 0.0, "num_predict": 512},
             },
-            timeout=60,
+            timeout=600,
         )
         resp.raise_for_status()
         return resp.json()["message"]["content"]
@@ -249,6 +249,7 @@ class DataQueryAgent:
             }
         """
         # 1. Try LLM SQL generation
+        print(f"DataQueryAgent received question: {user_question}")
         llm_output = _call_ollama(
             prompt=user_question,
             system=DATA_AGENT_SYSTEM_PROMPT,

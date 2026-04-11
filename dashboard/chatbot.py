@@ -157,14 +157,22 @@ def render_chatbot(selected_area_scores: dict = None):
     # Handle pending input from chips
     pending = st.session_state.pop("_pending_input", None)
 
-    # Chat input
-    user_input = st.text_input(
-        "Ask about data, trends, or policy recommendations...",
-    ) or pending
+    # ---- Chat Form ----
+    with st.form("chat_form", clear_on_submit=True):
+        user_input = st.text_input(
+            "Ask about data, trends, or policy recommendations..."
+        )
+        submitted = st.form_submit_button("Send")
 
-    if user_input:
+    # Handle chip input OR form submit
+    if submitted or pending:
+        user_input = user_input if submitted else pending
+
         # Add user message to history
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        st.session_state.chat_history.append({
+            "role": "user",
+            "content": user_input
+        })
 
         # Call orchestrator
         with st.spinner("Thinking..."):
@@ -173,7 +181,7 @@ def render_chatbot(selected_area_scores: dict = None):
                 selected_area_scores=selected_area_scores,
             )
 
-        # Add assistant message to history
+        # Add assistant message
         st.session_state.chat_history.append({
             "role": "assistant",
             "result": result,

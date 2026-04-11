@@ -52,10 +52,10 @@ WEI_MODERATE_THRESHOLD   = 60
 
 # ── Agent / LLM models ──────────────────────────────────────────────────────
 # Data Query Agent — needs strong instruction-following + SQL generation
-DATA_AGENT_MODEL    = "mistral"          # via ollama  (mistral 7B)
+DATA_AGENT_MODEL    = "phi3" #"mistral"          # via ollama  (mistral 7B)
 
 # Policy Agent — needs reasoning + long context for narrative generation
-POLICY_AGENT_MODEL  = "llama3.1"         # via ollama  (llama3.1 8B)
+POLICY_AGENT_MODEL  = "phi3"  #"llama3.1"         # via ollama  (llama3.1 8B)
 
 # Ollama base URL (local)
 OLLAMA_BASE_URL     = "http://localhost:11434"
