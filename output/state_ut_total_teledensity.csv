@@ -1,0 +1,39 @@
+serial_no,state_ut,total_teledensity_percent,rural_teledensity_percent,urban_teledensity_percent
+1,Andhra Pradesh,84.33,74.21,101.02
+2,Arunachal Pradesh,80.06,72.18,102.36
+3,Assam,73.81,56.62,165.32
+4,Bihar,55.70,44.57,133.94
+5,Chhattisgarh,70.07,47.30,129.25
+6,Goa,157.04,187.20,148.52
+7,Gujarat,91.06,67.05,115.31
+8,Haryana,118.16,71.67,179.01
+9,Himachal Pradesh,120.37,86.96,409.45
+10,Jharkhand,62.18,47.32,103.35
+11,Karnataka,105.62,70.29,148.09
+12,Kerala,119.51,,
+13,Madhya Pradesh,69.10,44.59,128.47
+14,Maharashtra Incl. Mumbai,100.11,63.47,138.10
+15,Manipur,76.60,47.65,135.41
+16,Meghalaya,79.14,63.50,138.90
+17,Mizoram,112.52,96.14,125.64
+18,Nagaland,76.50,78.57,74.33
+19,Odisha,80.00,64.76,143.79
+20,Punjab,109.75,67.08,167.29
+21,Rajasthan,79.83,58.73,137.16
+22,Sikkim,112.48,149.25,80.28
+23,Tamil Nadu (incl. Chennai),102.96,67.81,132.17
+24,Telangana,108.71,85.05,132.92
+25,Tripura,78.78,71.77,88.66
+26,Uttar Pradesh (UPE +UPW),69.74,49.53,132.63
+27,Uttarakhand,105.38,84.56,141.04
+28,West Bengal Incl. Kolkata,80.28,57.48,118.01
+Union Territories,Union Territories,Union Territories,Union Territories,Union Territories
+1,Andaman & Nicobar Islands,132.04,120.72,145.76
+2,Chandigarh,155.13,,
+3,Dadra and Nagar Haveli and Daman and Diu,64.79,136.80,50.50
+4,Delhi,178.32,,
+5,Jammu & Kashmir,88.23,61.83,146.79
+6,Ladakh,176.28,151.73,227.74
+7,Lakshdweep,107.95,,
+8,Puduchery,71.36,76.27,69.31
+Total,Total,85.04,59.06,131.45

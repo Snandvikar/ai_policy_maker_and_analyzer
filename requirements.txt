@@ -4,3 +4,5 @@ duckdb
 pandas 
 plotly
 scikit-learn
+docling==2.92.0
+docling-core==2.74.1
