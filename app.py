@@ -6,13 +6,11 @@ Main Streamlit entry point for the MCI Digital Desert Dashboard.
 Run:
     streamlit run dashboard/app.py
 
-Install:
-    pip install streamlit plotly duckdb pandas scikit-learn requests --break-system-packages
-
-For the AI chatbot, install Ollama and pull models:
-    ollama pull mistral
-    ollama pull llama3.1
-    ollama serve
+Schema note:
+  The granularity is (canonical_state, districtname, year).
+  There is no 'city', 'area', or 'city_tier' column in mci_scores.
+  All references use: statename (display), canonical_state (joins),
+  districtname (the geographic unit).
 """
 
 import streamlit as st
@@ -45,12 +43,12 @@ st.set_page_config(
 # LOAD DATA
 # ─────────────────────────────────────────────────────────────────────────────
 
-data = load_all_data()
-scores_df      = data["scores"]
-timeseries_df  = data["timeseries"]
-sub_df         = data["subcomponents"]
-imp_df         = data["importance"]
-cluster_df     = data["clusters"]
+data          = load_all_data()
+scores_df     = data["scores"]
+timeseries_df = data["timeseries"]
+sub_df        = data["subcomponents"]
+imp_df        = data["importance"]
+cluster_df    = data["clusters"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,7 +67,8 @@ n_total     = len(filtered_df)
 st.markdown("# 📡 Digital Desert Dashboard")
 st.markdown(
     "**Minimum Connectivity Index (MCI)** — identifying digital deserts "
-    "and their impact on women's safety and employment across India."
+    "and their impact on women's safety and employment across India.  \n"
+    "Granularity: **State × District**"
 )
 st.markdown("---")
 
@@ -78,37 +77,42 @@ st.markdown("---")
 # KPI ROW
 # ─────────────────────────────────────────────────────────────────────────────
 
-n_deserts  = len(filtered_df[filtered_df["MCI_class"].isin(["Severe desert", "Moderate desert"])])
-n_severe   = len(filtered_df[filtered_df["MCI_class"] == "Severe desert"])
-avg_mci    = filtered_df["MCI"].mean() if n_total else 0
-avg_wsi    = filtered_df["WSI"].mean() if n_total else 0
-avg_wei    = filtered_df["WEI"].mean() if n_total else 0
-high_risk  = (len(filtered_df[filtered_df["Safety_risk"] == "High safety risk"])
-              if "Safety_risk" in filtered_df.columns else 0)
+n_deserts = len(
+    filtered_df[filtered_df["MCI_class"].isin(["Severe desert", "Moderate desert"])]
+)
+n_severe  = len(filtered_df[filtered_df["MCI_class"] == "Severe desert"])
+avg_mci   = filtered_df["MCI"].mean() if n_total else 0.0
+avg_wsi   = filtered_df["WSI"].mean() if n_total else 0.0
+avg_wei   = filtered_df["WEI"].mean() if n_total else 0.0
+high_risk = (
+    len(filtered_df[filtered_df["Safety_risk"] == "High safety risk"])
+    if "Safety_risk" in filtered_df.columns else 0
+)
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Areas",               n_total)
-c2.metric("Digital deserts",     n_deserts,
+c1.metric("Districts",        n_total)
+c2.metric("Digital deserts",  n_deserts,
           delta=f"{n_severe} severe", delta_color="inverse")
-c3.metric("Avg MCI",             f"{avg_mci:.1f}")
-c4.metric("Avg WSI",             f"{avg_wsi:.1f}",
+c3.metric("Avg MCI",          f"{avg_mci:.1f}")
+c4.metric("Avg WSI",          f"{avg_wsi:.1f}",
           help="Women Safety Index — lower = higher risk")
-c5.metric("Avg WEI",             f"{avg_wei:.1f}",
+c5.metric("Avg WEI",          f"{avg_wei:.1f}",
           help="Women Employment Index — lower = fewer opportunities")
-c6.metric("High safety risk",    high_risk,
-          delta_color="inverse")
+c6.metric("High safety risk", high_risk, delta_color="inverse")
 
 st.markdown("---")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROW 1 — Classification distribution + Factor averages
+# ROW 1 — Classification breakdown + Factor averages
 # ─────────────────────────────────────────────────────────────────────────────
 
 col_l, col_r = st.columns(2)
 with col_l:
-    st.markdown("#### Area classification breakdown")
-    st.plotly_chart(classification_bar(filtered_df), use_container_width=True)
+    st.markdown("#### District classification breakdown")
+    if n_total:
+        st.plotly_chart(classification_bar(filtered_df), use_container_width=True)
+
 with col_r:
     st.markdown("#### Average factor scores")
     if n_total:
@@ -121,9 +125,10 @@ with col_r:
 
 col_l2, col_r2 = st.columns(2)
 with col_l2:
-    st.markdown("#### MCI by area")
+    st.markdown("#### MCI by district")
     if n_total:
         st.plotly_chart(mci_scatter(filtered_df), use_container_width=True)
+
 with col_r2:
     st.markdown("#### WSI vs WEI — women impact quadrant")
     if n_total and "WSI" in filtered_df.columns:
@@ -131,64 +136,70 @@ with col_r2:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROW 3 — Area table
+# ROW 3 — District-level scores table
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.markdown("---")
-st.markdown("#### Area-level scores")
+st.markdown("#### District-level scores")
 
 if n_total:
-    display_cols = ["area", "city", "state", "city_tier",
-                    "MCI", "IFS", "DLS", "SES", "WDI",
-                    "WSI", "WEI", "MCI_class", "cluster_label"]
+    display_cols = [
+        "districtname", "statename",
+        "MCI", "IFS", "DLS", "SES", "WDI", "WSI", "WEI",
+        "MCI_class", "cluster_label",
+    ]
     display_cols = [c for c in display_cols if c in filtered_df.columns]
     table_df = filtered_df[display_cols].copy()
-    for col in ["MCI","IFS","DLS","SES","WDI","WSI","WEI"]:
-        if col in table_df.columns:
-            table_df[col] = table_df[col].round(1)
 
-    def color_score(val):
-        if val < 25:   color = "#E24B4A"
-        elif val < 45: color = "#EF9F27"
-        elif val < 60: color = "#378ADD"
-        elif val < 75: color = "#639922"
-        else:          color = "#1D9E75"
+    # Rename for readability
+    table_df = table_df.rename(columns={
+        "districtname": "District",
+        "statename":    "State",
+        "cluster_label": "Cluster profile",
+    })
+
+    score_cols = [c for c in ["MCI", "IFS", "DLS", "SES", "WDI", "WSI", "WEI"]
+                  if c in table_df.columns]
+
+    def _color_score(val):
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return ""
+        if v < 25:   color = "#E24B4A"
+        elif v < 45: color = "#EF9F27"
+        elif v < 60: color = "#378ADD"
+        elif v < 75: color = "#639922"
+        else:        color = "#1D9E75"
         return f"background-color:{color}18;color:{color};font-weight:500"
 
-    score_cols = [c for c in ["MCI","IFS","DLS","SES","WDI","WSI","WEI"]
-                  if c in table_df.columns]
-    styled = table_df.style.applymap(color_score, subset=score_cols)
-    st.dataframe(styled, height=320)
+    styled = table_df.style.applymap(_color_score, subset=score_cols)
+    st.dataframe(styled, use_container_width=True, height=320)
 else:
-    st.info("No areas match the current filters.")
+    st.info("No districts match the current filters.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROW 4 — Area drill-down
+# ROW 4 — District drill-down
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.markdown("---")
-st.markdown("#### Area drill-down")
+st.markdown("#### District drill-down")
 
-selected_area_scores = None   # injected into chatbot for context
+selected_area_scores = None  # passed to chatbot for context
 
-area_options = (
-    filtered_df
-    .apply(lambda r: f"{r['area']} — {r['city']}", axis=1)
-    .tolist()
-)
+if n_total:
+    # Label: "DistrictName (StateName)"
+    filtered_df["_select_label"] = (
+        filtered_df["districtname"] + "  (" + filtered_df["statename"] + ")"
+    )
+    select_options = ["— select —"] + filtered_df["_select_label"].tolist()
+    selected_label = st.selectbox("Select district to inspect", select_options)
 
-if area_options:
-    selected_str  = st.selectbox("Select area to inspect", ["— select —"] + area_options)
-    if selected_str != "— select —":
-        area_name = selected_str.split(" — ")[0]
-        city_name = selected_str.split(" — ")[1]
-        row = filtered_df[
-            (filtered_df["area"] == area_name) &
-            (filtered_df["city"] == city_name)
-        ]
+    if selected_label != "— select —":
+        row = filtered_df[filtered_df["_select_label"] == selected_label]
         if not row.empty:
-            area_row_dict = row.iloc[0].to_dict()
+            area_row_dict        = row.iloc[0].to_dict()
             selected_area_scores = area_row_dict
 
             render_area_detail(
@@ -208,20 +219,27 @@ st.markdown("#### Connectivity profile clusters")
 if not cluster_df.empty:
     st.plotly_chart(cluster_centroid_chart(cluster_df), use_container_width=True)
 
-    CLUSTER_COLORS = ["#E24B4A","#EF9F27","#378ADD","#7F77DD","#1D9E75","#639922","#D4537E"]
-    c_cols = st.columns(min(3, len(cluster_df)))
+    CLUSTER_COLORS = [
+        "#E24B4A", "#EF9F27", "#378ADD",
+        "#7F77DD", "#1D9E75", "#639922", "#D4537E",
+    ]
+    n_cols = min(3, len(cluster_df))
+    c_cols = st.columns(n_cols)
     for i, (_, cl) in enumerate(cluster_df.iterrows()):
         cc = CLUSTER_COLORS[i % len(CLUSTER_COLORS)]
-        with c_cols[i % len(c_cols)]:
+        with c_cols[i % n_cols]:
             st.markdown(
                 f"<div style='border-left:3px solid {cc};padding:.6rem .8rem;"
                 f"background:{cc}08;border-radius:0 8px 8px 0;margin-bottom:8px'>"
-                f"<div style='font-size:13px;font-weight:600;color:{cc}'>{cl['label']}</div>"
+                f"<div style='font-size:13px;font-weight:600;color:{cc}'>"
+                f"{cl['label']}</div>"
                 f"<div style='font-size:11px;color:gray;margin:.3rem 0'>"
-                f"{cl['area_count']} area{'s' if cl['area_count']!=1 else ''} · "
+                f"{cl['area_count']} district{'s' if cl['area_count']!=1 else ''} · "
                 f"avg score {cl['mean_score']:.0f}</div>"
-                f"<div style='font-size:12px;margin-bottom:.4rem'>{cl['intervention']}</div>"
-                f"<div style='font-size:11px;color:gray'>Areas: {cl['area_list']}</div>"
+                f"<div style='font-size:12px;margin-bottom:.4rem'>"
+                f"{cl['intervention']}</div>"
+                f"<div style='font-size:11px;color:gray'>"
+                f"Districts: {cl['area_list']}</div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -234,28 +252,27 @@ if not cluster_df.empty:
 st.markdown("---")
 st.markdown("#### Intervention levers — random forest feature importance")
 st.caption(
-    "Variables ranked by their contribution to predicting MCI. "
+    "Variables ranked by contribution to predicting MCI. "
     "Higher importance = higher-leverage policy intervention target."
 )
 if not imp_df.empty:
     st.plotly_chart(rf_importance_bar(imp_df), use_container_width=True)
     st.info(
-        "**Key finding:** Household internet access and women's digital skills "
-        "are the top predictors of MCI — tower density ranks last. "
-        "Demand-side interventions (skilling, access programmes) "
-        "are higher-leverage than supply-side infrastructure alone."
+        "**Key finding:** No-phone household rate and illiteracy are the top "
+        "predictors of MCI in this dataset — physical access and structural "
+        "literacy are the primary barriers, not just network infrastructure."
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROW 7 — Spearman heatmap
+# ROW 7 — Spearman correlation heatmap
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.markdown("---")
 st.markdown("#### Factor Spearman correlation matrix")
 st.caption(
-    "DLS↔WDI and DLS↔SES are expected to be highly correlated. "
-    "They are kept separate for policy-narrative clarity despite data overlap."
+    "High DLS↔WDI and DLS↔SES correlation is expected — "
+    "kept separate for policy-narrative clarity."
 )
 if n_total >= 5:
     st.plotly_chart(spearman_heatmap(filtered_df), use_container_width=True)
@@ -277,5 +294,6 @@ st.caption(
     "MCI = weighted geometric mean: IFS×0.35, DLS×0.30, SES×0.20, WDI×0.15. "
     "Normalisation anchored to baseline year p5/p95 for cross-year comparability. "
     "WSI/WEI: 40% MCI + 60% domain-specific factors. "
+    "Granularity: state × district. "
     "Chatbot: Mistral (data queries) + LLaMA 3.1 (policy) via Ollama."
 )

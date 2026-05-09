@@ -45,20 +45,21 @@ STRICT RULES:
 4. Never explain, never add prose, never add markdown. Only JSON.
 5. Always LIMIT results to 50 rows maximum unless the user asks for all.
 6. For trend queries, use mci_timeseries_scores and ORDER BY year ASC.
-7. For comparisons between cities/areas, use mci_scores (latest year).
+7. For comparisons between districts/states, use mci_scores (latest year).
 8. Round all decimal scores to 1 decimal place using ROUND(col, 1).
 9. If a question cannot be answered from the given schemas, return:
    {{"sql": "SELECT 'No matching data found' AS message", "chart_type": "none"}}
 
 EXAMPLE OUTPUTS:
 User: "Which areas have the lowest MCI?"
-Output: {{"sql": "SELECT area, city, ROUND(MCI,1) AS MCI, MCI_class FROM mci_scores ORDER BY MCI ASC LIMIT 10", "chart_type": "bar"}}
+Output: {{"sql": "SELECT districtname, statename, ROUND(MCI,1) AS MCI, MCI_class FROM mci_scores ORDER BY MCI ASC LIMIT 10", "chart_type": "bar"}}
 
-User: "Show MCI trend for Mumbai"
-Output: {{"sql": "SELECT year, city, ROUND(AVG(MCI),1) AS avg_MCI FROM mci_timeseries_scores WHERE city = 'Mumbai' GROUP BY year, city ORDER BY year ASC", "chart_type": "line"}}
+User: "Show MCI trend for Maharashtra"
+Output:{{"sql": "SELECT year, statename, ROUND(AVG(MCI),1) AS avg_MCI FROM mci_timeseries_scores WHERE LOWER(statename) = LOWER('Maharashtra') GROUP BY year, statename ORDER BY year ASC","chart_type": "line"}}
 
-User: "Compare women safety scores across Tier 2 cities"
-Output: {{"sql": "SELECT city, ROUND(AVG(WSI),1) AS avg_WSI, ROUND(AVG(WEI),1) AS avg_WEI FROM mci_scores WHERE city_tier = 'Tier 2' GROUP BY city ORDER BY avg_WSI ASC", "chart_type": "bar"}}
+User: "Compare women safety scores across states"
+Output:{{"sql": "SELECT statename, ROUND(AVG(WSI),1) AS avg_WSI, ROUND(AVG(WEI),1) AS avg_WEI FROM mci_scores GROUP BY statename ORDER BY avg_WSI ASC LIMIT 20","chart_type": "bar"}}
+
 """
 
 
@@ -98,86 +99,227 @@ def _call_ollama(prompt: str, system: str, model: str) -> Optional[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _keyword_sql(question: str) -> dict:
+    import re
+
     q = question.lower()
 
-    # Trend / timeseries
-    if any(w in q for w in ["trend", "over time", "year", "history", "change"]):
-        city_match = re.search(r"(?:for|in)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)", question)
-        where = f"WHERE city = '{city_match.group(1)}'" if city_match else ""
+    # ─────────────────────────────────────────────────────────────
+    # TREND / TIME SERIES
+    # ─────────────────────────────────────────────────────────────
+    if any(w in q for w in ["trend", "over time", "history", "change", "year"]):
+
+        state_match = re.search(
+            r"(?:for|in)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)",
+            question
+        )
+
+        where = ""
+        if state_match:
+            state = state_match.group(1)
+            where = f"WHERE LOWER(statename) = LOWER('{state}')"
+
         return {
-            "sql": f"SELECT year, city, area, ROUND(MCI,1) AS MCI, ROUND(IFS,1) AS IFS, "
-                   f"ROUND(DLS,1) AS DLS, ROUND(SES,1) AS SES, ROUND(WDI,1) AS WDI "
-                   f"FROM mci_timeseries_scores {where} ORDER BY year ASC LIMIT 50",
+            "sql":
+                f"SELECT year, statename, "
+                f"ROUND(AVG(MCI),1) AS avg_MCI, "
+                f"ROUND(AVG(IFS),1) AS avg_IFS, "
+                f"ROUND(AVG(DLS),1) AS avg_DLS, "
+                f"ROUND(AVG(SES),1) AS avg_SES, "
+                f"ROUND(AVG(WDI),1) AS avg_WDI "
+                f"FROM mci_timeseries_scores "
+                f"{where} "
+                f"GROUP BY year, statename "
+                f"ORDER BY year ASC LIMIT 50",
             "chart_type": "line",
         }
 
-    # Lowest / worst
+    # ─────────────────────────────────────────────────────────────
+    # LOWEST / WORST
+    # ─────────────────────────────────────────────────────────────
     if any(w in q for w in ["lowest", "worst", "bottom", "least", "minimum"]):
+
         col = "MCI"
-        if "safety" in q or "wsi" in q: col = "WSI"
-        elif "employment" in q or "wei" in q: col = "WEI"
-        elif "infrastructure" in q or "ifs" in q: col = "IFS"
-        elif "literacy" in q or "dls" in q: col = "DLS"
+
+        if "safety" in q or "wsi" in q:
+            col = "WSI"
+
+        elif "employment" in q or "wei" in q:
+            col = "WEI"
+
+        elif "infrastructure" in q or "ifs" in q:
+            col = "IFS"
+
+        elif "literacy" in q or "dls" in q:
+            col = "DLS"
+
+        elif "women" in q or "wdi" in q:
+            col = "WDI"
+
         return {
-            "sql": f"SELECT area, city, city_tier, ROUND({col},1) AS {col}, MCI_class "
-                   f"FROM mci_scores ORDER BY {col} ASC LIMIT 10",
+            "sql":
+                f"SELECT districtname, statename, "
+                f"ROUND({col},1) AS {col}, "
+                f"MCI_class, cluster_label "
+                f"FROM mci_scores "
+                f"ORDER BY {col} ASC LIMIT 10",
             "chart_type": "bar",
         }
 
-    # Highest / best
+    # ─────────────────────────────────────────────────────────────
+    # HIGHEST / BEST
+    # ─────────────────────────────────────────────────────────────
     if any(w in q for w in ["highest", "best", "top", "most", "maximum"]):
+
         col = "MCI"
-        if "safety" in q: col = "WSI"
-        elif "employment" in q: col = "WEI"
+
+        if "safety" in q or "wsi" in q:
+            col = "WSI"
+
+        elif "employment" in q or "wei" in q:
+            col = "WEI"
+
+        elif "women" in q or "wdi" in q:
+            col = "WDI"
+
+        elif "infrastructure" in q or "ifs" in q:
+            col = "IFS"
+
         return {
-            "sql": f"SELECT area, city, city_tier, ROUND({col},1) AS {col}, MCI_class "
-                   f"FROM mci_scores ORDER BY {col} DESC LIMIT 10",
+            "sql":
+                f"SELECT districtname, statename, "
+                f"ROUND({col},1) AS {col}, "
+                f"MCI_class, cluster_label "
+                f"FROM mci_scores "
+                f"ORDER BY {col} DESC LIMIT 10",
             "chart_type": "bar",
         }
 
-    # Tier filter
-    tier_match = re.search(r"tier\s*([123])", q)
-    if tier_match:
-        tier = f"Tier {tier_match.group(1)}"
-        return {
-            "sql": f"SELECT city, area, ROUND(MCI,1) AS MCI, ROUND(WSI,1) AS WSI, "
-                   f"ROUND(WEI,1) AS WEI, MCI_class, cluster_label "
-                   f"FROM mci_scores WHERE city_tier = '{tier}' ORDER BY MCI ASC LIMIT 50",
-            "chart_type": "table",
-        }
-
-    # Desert only
+    # ─────────────────────────────────────────────────────────────
+    # DESERT FILTER
+    # ─────────────────────────────────────────────────────────────
     if "desert" in q:
+
         return {
-            "sql": "SELECT city, area, city_tier, ROUND(MCI,1) AS MCI, "
-                   "ROUND(WSI,1) AS WSI, ROUND(WEI,1) AS WEI, MCI_class "
-                   "FROM mci_scores WHERE MCI_class IN ('Severe desert','Moderate desert') "
-                   "ORDER BY MCI ASC LIMIT 50",
+            "sql":
+                "SELECT districtname, statename, "
+                "ROUND(MCI,1) AS MCI, "
+                "ROUND(WSI,1) AS WSI, "
+                "ROUND(WEI,1) AS WEI, "
+                "MCI_class "
+                "FROM mci_scores "
+                "WHERE MCI_class IN "
+                "('Severe desert','Moderate desert') "
+                "ORDER BY MCI ASC LIMIT 50",
             "chart_type": "bar",
         }
 
-    # Compare / vs
+    # ─────────────────────────────────────────────────────────────
+    # WOMEN / SAFETY ANALYSIS
+    # ─────────────────────────────────────────────────────────────
+    if any(w in q for w in [
+        "women", "gender", "safety",
+        "crime", "vulnerability"
+    ]):
+
+        return {
+            "sql":
+                "SELECT districtname, statename, "
+                "ROUND(WDI,1) AS WDI, "
+                "ROUND(WSI,1) AS WSI, "
+                "ROUND(gender_vulnerability_index,1) AS vulnerability_index, "
+                "ROUND(crime_against_women_rate,1) AS crime_rate "
+                "FROM mci_scores "
+                "ORDER BY WDI ASC LIMIT 20",
+            "chart_type": "scatter",
+        }
+
+    # ─────────────────────────────────────────────────────────────
+    # TELECOM / TELEDENSITY
+    # ─────────────────────────────────────────────────────────────
+    if any(w in q for w in [
+        "teledensity", "wireless",
+        "subscriber", "telecom"
+    ]):
+
+        return {
+            "sql":
+                "SELECT state_ut, "
+                "ROUND(wireless_teledensity_total_percent,2) "
+                "AS wireless_teledensity, "
+                "ROUND(wireless_teledensity_rural_percent,2) "
+                "AS rural_wireless_teledensity, "
+                "ROUND(wireless_teledensity_urban_percent,2) "
+                "AS urban_wireless_teledensity "
+                "FROM state_ut_wireless_teledensity "
+                "ORDER BY wireless_teledensity_total_percent DESC LIMIT 20",
+            "chart_type": "bar",
+        }
+
+    # ─────────────────────────────────────────────────────────────
+    # COMPARE STATES
+    # ─────────────────────────────────────────────────────────────
     if any(w in q for w in ["compare", "vs", "versus", "difference"]):
-        cities = re.findall(r"\b([A-Z][a-z]{2,})\b", question)
-        if cities:
-            city_list = ", ".join(f"'{c}'" for c in cities[:3])
+
+        states = re.findall(
+            r"\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\b",
+            question
+        )
+
+        if states:
+            state_list = ", ".join(
+                f"'{s}'" for s in states[:5]
+            )
+
             return {
-                "sql": f"SELECT city, ROUND(AVG(MCI),1) AS MCI, ROUND(AVG(IFS),1) AS IFS, "
-                       f"ROUND(AVG(DLS),1) AS DLS, ROUND(AVG(SES),1) AS SES, "
-                       f"ROUND(AVG(WDI),1) AS WDI, ROUND(AVG(WSI),1) AS WSI, "
-                       f"ROUND(AVG(WEI),1) AS WEI "
-                       f"FROM mci_scores WHERE city IN ({city_list}) GROUP BY city",
+                "sql":
+                    f"SELECT statename, "
+                    f"ROUND(AVG(MCI),1) AS MCI, "
+                    f"ROUND(AVG(IFS),1) AS IFS, "
+                    f"ROUND(AVG(DLS),1) AS DLS, "
+                    f"ROUND(AVG(SES),1) AS SES, "
+                    f"ROUND(AVG(WDI),1) AS WDI, "
+                    f"ROUND(AVG(WSI),1) AS WSI, "
+                    f"ROUND(AVG(WEI),1) AS WEI "
+                    f"FROM mci_scores "
+                    f"WHERE statename IN ({state_list}) "
+                    f"GROUP BY statename",
                 "chart_type": "bar",
             }
 
-    # Default: show all areas summary
+    # ─────────────────────────────────────────────────────────────
+    # CLUSTER ANALYSIS
+    # ─────────────────────────────────────────────────────────────
+    if "cluster" in q:
+
+        return {
+            "sql":
+                "SELECT cluster_label, "
+                "COUNT(*) AS district_count, "
+                "ROUND(AVG(MCI),1) AS avg_MCI, "
+                "ROUND(AVG(IFS),1) AS avg_IFS, "
+                "ROUND(AVG(DLS),1) AS avg_DLS, "
+                "ROUND(AVG(SES),1) AS avg_SES, "
+                "ROUND(AVG(WDI),1) AS avg_WDI "
+                "FROM mci_scores "
+                "GROUP BY cluster_label "
+                "ORDER BY avg_MCI ASC",
+            "chart_type": "bar",
+        }
+
+    # ─────────────────────────────────────────────────────────────
+    # DEFAULT SUMMARY
+    # ─────────────────────────────────────────────────────────────
     return {
-        "sql": "SELECT city, area, city_tier, ROUND(MCI,1) AS MCI, "
-               "ROUND(WSI,1) AS WSI, ROUND(WEI,1) AS WEI, MCI_class "
-               "FROM mci_scores ORDER BY MCI ASC LIMIT 30",
+        "sql":
+            "SELECT districtname, statename, "
+            "ROUND(MCI,1) AS MCI, "
+            "ROUND(WSI,1) AS WSI, "
+            "ROUND(WEI,1) AS WEI, "
+            "MCI_class, cluster_label "
+            "FROM mci_scores "
+            "ORDER BY MCI ASC LIMIT 30",
         "chart_type": "table",
     }
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SQL EXTRACTION
