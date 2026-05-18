@@ -8,7 +8,10 @@ Two top-level tabs:
   🔬 Policy Simulation — new policy simulation module
 """
 
+import sys
 import streamlit as st
+
+st.write(sys.version)
 import pandas as pd
 
 from config import FACTOR_LABELS
@@ -220,7 +223,7 @@ with tab_dashboard:
         st.plotly_chart(spearman_heatmap(filtered_df), use_container_width=True)
 
     # ── Chatbot ───────────────────────────────────────────────────────────────
-    # render_chatbot(selected_area_scores=selected_area_scores)
+    render_chatbot(selected_area_scores=selected_area_scores)
 
     st.markdown("---")
     st.caption(
@@ -235,5 +238,5 @@ with tab_dashboard:
 # TAB 2 — POLICY SIMULATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-# with tab_simulation:
-#     render_simulation_page()
+with tab_simulation:
+    render_simulation_page()
