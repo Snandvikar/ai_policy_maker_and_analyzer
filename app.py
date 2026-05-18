@@ -9,10 +9,18 @@ Two top-level tabs:
 """
 
 import sys
+import pkg_resources
+import pandas as pd
 import streamlit as st
 
+packages = sorted(
+    [(d.project_name, d.version) for d in pkg_resources.working_set]
+)
+
+st.write(packages)
+
 st.write(sys.version)
-import pandas as pd
+
 
 from config import FACTOR_LABELS
 from dashboard.filters import load_all_data, render_sidebar, apply_filters
