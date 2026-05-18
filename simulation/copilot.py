@@ -69,7 +69,7 @@ def _call_ollama(prompt: str) -> Optional[str]:
                 "stream": False,
                 "options": {"temperature": 0.2, "num_predict": 600},
             },
-            timeout=90,
+            timeout=600,
         )
         resp.raise_for_status()
         return resp.json()["message"]["content"]
