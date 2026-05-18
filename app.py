@@ -9,13 +9,14 @@ Two top-level tabs:
 """
 
 import sys
-import pkg_resources
 import pandas as pd
+import importlib.metadata
 import streamlit as st
 
-packages = sorted(
-    [(d.project_name, d.version) for d in pkg_resources.working_set]
-)
+packages = sorted([
+    (dist.metadata["Name"], dist.version)
+    for dist in importlib.metadata.distributions()
+])
 
 st.write(packages)
 
