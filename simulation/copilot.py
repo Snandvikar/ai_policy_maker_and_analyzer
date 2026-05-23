@@ -53,11 +53,17 @@ OUTPUT FORMAT (follow exactly):
 
 **Confidence note:**
 [1 sentence explaining reliability of projection]
+
+Additionally, 
+IF user asks for 'Policy Brief', generate a 1-page policy brief with the above sections, using bullet points and plain language suitable for a district collector.
+IF user asks about implementation, answer with detailed feasible phase wise policy implementation steps, mentioning specific schemes and programs where relevant.
+example - Phase 0: Planning and Capacity Building, Phase 1: Infrastructure Development (0-6 months), Phase 2: Digital Literacy and Inclusion (6-18 months), Phase 3: Service Delivery and Feedback (18-36 months). Always ground recommendations in the Indian policy context.
 """
 
 
 def _call_ollama(prompt: str) -> Optional[str]:
     try:
+        print("***********************INSIDE AGENT CALL***********************")
         resp = requests.post(
             f"{OLLAMA_BASE_URL}/api/chat",
             json={
@@ -133,6 +139,8 @@ def _template_response(
     mci_base = result.baseline["MCI"]
     mci_sim  = result.simulated["MCI"]
     delta    = result.deltas["MCI"]
+    print("***********************INSIDE FALLBACK CALL***********************")
+
 
     weakest_factor = min(
         {"IFS", "DLS", "SES", "WDI"},
