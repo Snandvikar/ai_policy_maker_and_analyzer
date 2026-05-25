@@ -3,11 +3,15 @@ config.py — Central configuration for the MCI project.
 All other modules import from here. Change paths/models in one place.
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
-DB_PATH  = str(BASE_DIR / "database.duckdb")
+load_dotenv(BASE_DIR / ".env")
+DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "database.duckdb"))
 
 # ── Year settings ──────────────────────────────────────────────────────────
 BASELINE_YEAR   = 2021
@@ -63,10 +67,10 @@ WEI_CRITICAL_THRESHOLD  = 40
 WEI_MODERATE_THRESHOLD  = 60
 
 # ── Agent / LLM models ────────────────────────────────────────────────────
-DATA_AGENT_MODEL   = "phi3"
-POLICY_AGENT_MODEL = "phi3"
+DATA_AGENT_MODEL   = os.getenv("DATA_AGENT_MODEL", "llama-3.1-8b-instant")
+POLICY_AGENT_MODEL = os.getenv("POLICY_AGENT_MODEL", "llama-3.3-70b-versatile")
 
-OLLAMA_BASE_URL = "http://localhost:11434"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # ── Table registry ────────────────────────────────────────────────────────
 RAW_TABLES = {
