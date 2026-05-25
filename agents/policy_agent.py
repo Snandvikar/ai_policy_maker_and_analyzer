@@ -22,8 +22,11 @@ from vector_db.retriever import retrieve_policy_context
 import requests
 
 from config import (
-    DB_PATH, OLLAMA_BASE_URL, POLICY_AGENT_MODEL,
-    FACTOR_LABELS, CLASS_COLORS,
+    DB_PATH,
+    POLICY_AGENT_MODEL,
+    FACTOR_LABELS,
+    CLASS_COLORS,
+    GROQ_API_KEY,
 )
 from policy_engine.rules import get_suggestions, format_suggestions_markdown
 from agents.data_query_agent import DataQueryAgent
@@ -190,30 +193,52 @@ def _assemble_context(
 # OLLAMA CALL
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _call_ollama_policy(context: str, user_question: str) -> Optional[str]:
-    prompt = f"CONTEXT:\n{context}\n\nUSER QUESTION: {user_question}"
+def _call_groq_policy(messages: list[dict], max_tokens: int = 1024, model: str | None = None) -> Optional[str]:
+    if not GROQ_API_KEY:
+        return None
+
+    model = model or POLICY_AGENT_MODEL
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    logger.info("Groq policy request: url=%s model=%s message_count=%d", url, model, len(messages))
+    resp = None
     try:
         resp = requests.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
+            url,
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
             json={
-                "model": POLICY_AGENT_MODEL,
-                "messages": [
-                    {"role": "system", "content": POLICY_AGENT_SYSTEM_PROMPT},
-                    {"role": "user",   "content": prompt},
-                ],
-                "stream": False,
-                "options": {"temperature": 0.3, "num_predict": 1024},
+                "model": model,
+                "messages": messages,
+                "temperature": 0.3,
+                "max_tokens": max_tokens,
             },
             timeout=600,
         )
         resp.raise_for_status()
-        return resp.json()["message"]["content"]
-    except requests.exceptions.ConnectionError:
-        logger.warning("Ollama not reachable — using rule-based fallback")
-        return None
+        logger.info("Groq policy response success: url=%s model=%s status=%s", url, model, resp.status_code)
+        return resp.json()["choices"][0]["message"]["content"]
     except Exception as e:
-        logger.error(f"Policy agent Ollama error: {e}")
+        response_text = resp.text if resp is not None else "<no response>"
+        logger.warning(
+            "Groq policy API error: %s | url=%s | model=%s | status=%s | response=%s",
+            e,
+            url,
+            model,
+            getattr(resp, "status_code", "<no-status>"),
+            response_text,
+        )
         return None
+
+
+def _call_policy_llm(context: str, user_question: str) -> Optional[str]:
+    prompt = f"CONTEXT:\n{context}\n\nUSER QUESTION: {user_question}"
+    messages = [
+        {"role": "system", "content": POLICY_AGENT_SYSTEM_PROMPT},
+        {"role": "user",   "content": prompt},
+    ]
+    return _call_groq_policy(messages, model=POLICY_AGENT_MODEL)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -223,7 +248,7 @@ def _call_ollama_policy(context: str, user_question: str) -> Optional[str]:
 class PolicyAgent:
     """
     Generates impact analysis and policy recommendations.
-    Uses LLaMA 3.1 via Ollama; falls back to rule-based engine.
+    Uses Groq hosted chat; falls back to rule-based engine.
     """
 
     def __init__(self, db_path: str = DB_PATH):
@@ -331,7 +356,7 @@ class PolicyAgent:
         rule_suggestions = get_suggestions(area_scores)
 
         # Try LLM
-        llm_response = _call_ollama_policy(context, user_question)
+        llm_response = _call_policy_llm(context, user_question)
         used_llm = llm_response is not None
 
         if not llm_response:

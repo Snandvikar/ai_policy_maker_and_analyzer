@@ -22,7 +22,12 @@ import duckdb
 import pandas as pd
 import requests
 
-from config import DB_PATH, OLLAMA_BASE_URL, DATA_AGENT_MODEL, DB_SCHEMA_SUMMARY
+from config import (
+    DB_PATH,
+    DATA_AGENT_MODEL,
+    DB_SCHEMA_SUMMARY,
+    GROQ_API_KEY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,33 +69,56 @@ Output:{{"sql": "SELECT statename, ROUND(AVG(WSI),1) AS avg_WSI, ROUND(AVG(WEI),
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OLLAMA CLIENT
+# GROQ CLIENT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _call_ollama(prompt: str, system: str, model: str) -> Optional[str]:
-    """Call Ollama local API. Returns the model response text or None on error."""
+def _call_groq(messages: list[dict], max_tokens: int = 512, model: str | None = None) -> Optional[str]:
+    """Call Groq hosted API. Returns the model response text or None on error."""
+    if not GROQ_API_KEY:
+        logger.warning("GROQ_API_KEY is not set.")
+        return None
+
+    model = model or DATA_AGENT_MODEL
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    logger.info("Groq request: url=%s model=%s message_count=%d", url, model, len(messages))
+    resp = None
     try:
         resp = requests.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
+            url,
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
             json={
                 "model": model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user",   "content": prompt},
-                ],
-                "stream": False,
-                "options": {"temperature": 0.0, "num_predict": 512},
+                "messages": messages,
+                "temperature": 0.0,
+                    "max_tokens": max_tokens,
             },
             timeout=600,
         )
         resp.raise_for_status()
-        return resp.json()["message"]["content"]
-    except requests.exceptions.ConnectionError:
-        logger.warning("Ollama not reachable — falling back to keyword SQL builder")
-        return None
+        logger.info("Groq response success: url=%s model=%s status=%s", url, model, resp.status_code)
+        return resp.json()["choices"][0]["message"]["content"]
     except Exception as e:
-        logger.error(f"Ollama error: {e}")
+        response_text = resp.text if resp is not None else "<no response>"
+        logger.error(
+            "Groq API error: %s | url=%s | model=%s | status=%s | response=%s",
+            e,
+            url,
+            model,
+            getattr(resp, "status_code", "<no-status>"),
+            response_text,
+        )
         return None
+
+
+def _call_llm(prompt: str, system: str, model: str) -> Optional[str]:
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user",   "content": prompt},
+    ]
+    return _call_groq(messages, model=model)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -392,7 +420,7 @@ class DataQueryAgent:
         """
         # 1. Try LLM SQL generation
         print(f"DataQueryAgent received question: {user_question}")
-        llm_output = _call_ollama(
+        llm_output = _call_llm(
             prompt=user_question,
             system=DATA_AGENT_SYSTEM_PROMPT,
             model=DATA_AGENT_MODEL,
