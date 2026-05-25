@@ -22,7 +22,7 @@ from typing import Optional
 
 import requests
 
-from config import OLLAMA_BASE_URL, POLICY_AGENT_MODEL
+from config import GROQ_API_KEY, POLICY_AGENT_MODEL
 from simulation.engine import SimulationResult, SOCIAL_OUTCOME_LABELS, OBJECTIVE_MAP
 from simulation.root_cause import AttributionItem
 
@@ -56,26 +56,50 @@ OUTPUT FORMAT (follow exactly):
 """
 
 
-def _call_ollama(prompt: str) -> Optional[str]:
+def _call_groq(prompt: str, max_tokens: int = 600) -> Optional[str]:
+    if not GROQ_API_KEY:
+        return None
+
+    model = POLICY_AGENT_MODEL
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    logger.info("Copilot Groq request: url=%s model=%s", url, model)
+    resp = None
     try:
         resp = requests.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
+            url,
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
             json={
-                "model": POLICY_AGENT_MODEL,
+                "model": model,
                 "messages": [
                     {"role": "system", "content": SIMULATION_COPILOT_SYSTEM},
                     {"role": "user",   "content": prompt},
                 ],
-                "stream": False,
-                "options": {"temperature": 0.2, "num_predict": 600},
+                "temperature": 0.2,
+                "max_tokens": max_tokens,
             },
-            timeout=90,
+            timeout=600,
         )
         resp.raise_for_status()
-        return resp.json()["message"]["content"]
+        logger.info("Copilot Groq response success: url=%s model=%s status=%s", url, model, resp.status_code)
+        return resp.json()["choices"][0]["message"]["content"]
     except Exception as e:
-        logger.warning(f"Copilot Ollama call failed: {e}")
+        response_text = resp.text if resp is not None else "<no response>"
+        logger.warning(
+            "Copilot Groq call failed: %s | url=%s | model=%s | status=%s | response=%s",
+            e,
+            url,
+            model,
+            getattr(resp, "status_code", "<no-status>"),
+            response_text,
+        )
         return None
+
+
+def _call_llm(prompt: str) -> Optional[str]:
+    return _call_groq(prompt)
 
 
 def _build_simulation_context(
@@ -199,7 +223,7 @@ class SimulationCopilot:
             f"Explain the following simulation results to a policymaker "
             f"in plain, actionable language:\n\n{context}"
         )
-        llm_response = _call_ollama(prompt)
+        llm_response = _call_llm(prompt)
         return llm_response or _template_response(district_row, result, attribution)
 
     def generate_policy_brief(
@@ -219,7 +243,7 @@ class SimulationCopilot:
             + "\n\nInclude: situation overview, priority interventions, "
               "expected outcomes, and one clear next step."
         )
-        llm_response = _call_ollama(prompt)
+        llm_response = _call_llm(prompt)
         return llm_response or _template_response(district_row, result, attribution)
 
     def answer_question(
@@ -235,7 +259,7 @@ class SimulationCopilot:
                 district_row, result, attribution, "general_connectivity"
             )
         prompt = f"Context:\n{context}\n\nQuestion: {question}"
-        llm_response = _call_ollama(prompt)
+        llm_response = _call_llm(prompt)
         if llm_response:
             return llm_response
         # Simple fallback

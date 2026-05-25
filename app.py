@@ -9,9 +9,24 @@ Two top-level tabs:
 """
 
 import sys
+import logging
 import pandas as pd
 import importlib.metadata
 import streamlit as st
+
+# Configure root logger to stdout so Streamlit server shows logs
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+root = logging.getLogger()
+root.handlers = []  # avoid duplicate handlers on Streamlit reruns
+root.addHandler(handler)
+root.setLevel(logging.INFO)
+
+# Ensure Streamlit's own logger uses the same handler
+streamlit_logger = logging.getLogger("streamlit")
+streamlit_logger.handlers = []
+streamlit_logger.addHandler(handler)
+streamlit_logger.setLevel(logging.INFO)
 
 packages = sorted([
     (dist.metadata["Name"], dist.version)
