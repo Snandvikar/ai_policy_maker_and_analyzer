@@ -20,22 +20,18 @@ loading_screen = st.empty()
 loading_screen.markdown(
     """
     <style>
-    .main {
-        background-color: #0E1117;
-    }
-
     .loader-container {
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
         height: 85vh;
-        color: white;
         font-family: sans-serif;
+        color: inherit;
     }
 
     .loader {
-        border: 6px solid #2A2F3A;
+        border: 6px solid rgba(120,120,120,0.2);
         border-top: 6px solid #00C2FF;
         border-radius: 50%;
         width: 70px;
@@ -50,21 +46,21 @@ loading_screen.markdown(
     }
 
     .loading-text {
-        font-size: 22px;
-        font-weight: 600;
+        font-size: 24px;
+        font-weight: 700;
         margin-top: 10px;
     }
 
     .sub-text {
         font-size: 14px;
-        opacity: 0.7;
-        margin-top: 6px;
+        margin-top: 8px;
+        opacity: 0.75;
     }
     </style>
 
     <div class="loader-container">
         <div class="loader"></div>
-        <div class="loading-text">Loading Digital Desert Dashboard</div>
+        <div class="loading-text">📡Loading Digital Desert Dashboard</div>
         <div class="sub-text">
             Initializing analytics, charts, and policy simulation...
         </div>
