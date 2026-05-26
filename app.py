@@ -33,10 +33,72 @@ packages = sorted([
     for dist in importlib.metadata.distributions()
 ])
 
-st.write(packages)
+# st.write(packages)
+# st.write(sys.version)
+st.set_page_config(
+    page_title="MCI — Digital Desert Index",
+    page_icon="📡",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+# ── Initial Loading Screen ─────────────────────────────────────────────
+loading_screen = st.empty()
 
-st.write(sys.version)
+loading_screen.markdown(
+    """
+    <style>
+    .main {
+        background-color: #0E1117;
+    }
 
+    .loader-container {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 85vh;
+        color: white;
+        font-family: sans-serif;
+    }
+
+    .loader {
+        border: 6px solid #2A2F3A;
+        border-top: 6px solid #00C2FF;
+        border-radius: 50%;
+        width: 70px;
+        height: 70px;
+        animation: spin 1s linear infinite;
+        margin-bottom: 20px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+        font-size: 22px;
+        font-weight: 600;
+        margin-top: 10px;
+    }
+
+    .sub-text {
+        font-size: 14px;
+        opacity: 0.7;
+        margin-top: 6px;
+    }
+    </style>
+
+    <div class="loader-container">
+        <div class="loader"></div>
+        <div class="loading-text">Loading Digital Desert Dashboard</div>
+        <div class="sub-text">
+            Initializing analytics, charts, and policy simulation...
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 from config import FACTOR_LABELS
 from dashboard.filters import load_all_data, render_sidebar, apply_filters
@@ -49,13 +111,6 @@ from dashboard.area_detail import render_area_detail
 from dashboard.chatbot import render_chatbot
 from dashboard.simulation_page import render_simulation_page
 
-st.set_page_config(
-    page_title="MCI — Digital Desert Index",
-    page_icon="📡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
 tab_dashboard, tab_simulation = st.tabs(["📊 Dashboard", "🔬 Policy Simulation"])
 
 
@@ -66,6 +121,7 @@ tab_dashboard, tab_simulation = st.tabs(["📊 Dashboard", "🔬 Policy Simulati
 with tab_dashboard:
 
     data          = load_all_data()
+    loading_screen.empty()
     scores_df     = data["scores"]
     timeseries_df = data["timeseries"]
     sub_df        = data["subcomponents"]
