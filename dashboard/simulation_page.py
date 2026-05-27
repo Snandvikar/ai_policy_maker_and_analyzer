@@ -35,17 +35,22 @@ import duckdb
 from config import DB_PATH, FACTOR_LABELS, FACTOR_COLORS, CLASS_COLORS
 from simulation.engine import (
     INTERVENTIONS, OBJECTIVES, OBJECTIVE_MAP,
-    SimulationInput, simulate, SOCIAL_OUTCOME_LABELS,
+    SimulationInput, simulate, SOCIAL_OUTCOME_LABELS, _clamp,
 )
 from simulation.cost_model import (
     COST_PROFILES, compute_intervention_cost_cr,
     compute_portfolio_cost_cr, cost_efficiency_label,
 )
-from simulation.optimizer import optimize, OptimizationResult
+# from simulation.optimizer import optimize, OptimizationResult
 from simulation.root_cause import compute_attribution
 from simulation.recommendations import generate_recommendations
 from simulation.tradeoff import TRADEOFF_PROFILES, TIER_COLORS, get_tradeoff_table_data
 from simulation.copilot import SimulationCopilot
+from simulation.optimizer import (
+    optimize, OptimizationResult,
+    IMIN, IMAX,
+    slider_pos_to_intensity, intensity_to_cost, slider_pos_to_cost
+)
 
 TRANSPARENT = "rgba(0,0,0,0)"
 
@@ -357,99 +362,154 @@ def _render_intervention_panel(
     preset_values: dict[str, float] | None = None,
 ) -> dict[str, float]:
     """
-    Renders enhanced lever cards with cost/speed/feasibility metadata.
-    preset_values: filled by optimizer; used as slider defaults.
-    Returns {intervention_key: intensity}.
+    Renders lever cards with cost / speed / feasibility metadata.
+ 
+    Parameters
+    ----------
+    budget_on     : True when budget constraint is active.
+    budget_cr     : Total budget in ₹ Crore (None when budget_on=False).
+    preset_values : {intervention_key: slider_pos (0–100)} from the optimizer.
+                    Used as initial slider values. User can override freely.
+ 
+    Returns
+    -------
+    {intervention_key: intensity (float 0–100)}
+        intensity = slider_pos_to_intensity(slider_pos)
+        With Imin=0, Imax=100 this equals slider_pos numerically.
+        Returned dict is passed directly to SimulationInput.interventions.
     """
     st.markdown("### 🎛️ Policy Intervention Levers")
     st.caption(
-        "Each lever shows estimated cost, deployment speed, and feasibility "
-        "at the current intensity. Budget enforcement applies when enabled."
+        "Sliders represent deployment intensity (0 – 100%). "
+        "Cost scales linearly with intensity. "
+        "Adjust any lever freely — the budget bar tracks total spend."
     )
-
+ 
     interventions: dict[str, float] = {}
+ 
+    # Group interventions by category for display
     categories: dict[str, list] = {}
     for i in INTERVENTIONS:
         categories.setdefault(i.category, []).append(i)
-
+ 
     cat_icons = {
-        "Infrastructure": "📡", "Affordability": "💰",
-        "Digital Literacy": "💻", "Safety": "🛡️", "Social": "🤝",
+        "Infrastructure":  "📡",
+        "Affordability":   "💰",
+        "Digital Literacy":"💻",
+        "Safety":          "🛡️",
+        "Social":          "🤝",
     }
-
-    # Compute cost already committed to OTHER interventions for budget cap
-    # We'll compute per-slider below
+ 
     cols = st.columns(2)
     col_idx = 0
-
+ 
     for cat, items in categories.items():
         with cols[col_idx % 2]:
             st.markdown(
                 f"<div style='font-size:13px;font-weight:600;margin-bottom:4px'>"
-                f"{cat_icons.get(cat,'')} {cat}</div>",
+                f"{cat_icons.get(cat, '')} {cat}</div>",
                 unsafe_allow_html=True,
             )
+ 
             for interv in items:
-                cp      = COST_PROFILES.get(interv.key)
-                default = int(preset_values.get(interv.key, 0)) if preset_values else 0
-
-                # Compute max allowed intensity given remaining budget
-                if budget_on and budget_cr and cp and cp.cost_per_point_cr > 0:
-                    other_cost = sum(
-                        compute_intervention_cost_cr(k, v)
-                        for k, v in (preset_values or {}).items()
-                        if k != interv.key and v > 0
-                    )
-                    remaining  = max(0, budget_cr - other_cost)
-                    max_allow  = min(100, int(remaining / cp.cost_per_point_cr))
-                    # Round down to nearest 10
-                    max_allow  = (max_allow // 10) * 10
-                    # max_allow=int(budget_cr)
-                else:
-                    max_allow = 100
-                
-                slider_max = max(max_allow, default, 10)
-
-                val = st.slider(
-                label=interv.label,
-                min_value=0,
-                max_value=slider_max,
-                value=min(default, slider_max),
-                step=5,
-                key=f"sim_interv_{interv.key}",
-                help=interv.description,
-                format="%d%%",
+                cp = COST_PROFILES.get(interv.key)
+ 
+                # ── Slider initial value ──────────────────────────────────────
+                # preset_values contains slider_pos from the optimizer (0–100).
+                # Clamp to valid range as a safety guard only.
+                default_slider_pos = (
+                    int(_clamp(preset_values.get(interv.key, 0.0), int(IMIN), int(IMAX)))
+                    if preset_values else 0
                 )
-                interventions[interv.key] = float(val)
+ 
+                # ── Render slider (always 0–100, step=5) ─────────────────────
+                # value = slider_pos from optimizer, unmodified.
+                # format="%d%%" means Streamlit appends "%" to the displayed number,
+                # so 70 displays as "70%".
+                # slider_pos = st.slider(
+                #     label=interv.label,
+                #     min_value=0,       # 0
+                #     max_value=100,       # 100, always — never capped
+                #     value=default_slider_pos,
+                #     step=5,
+                #     key=f"sim_interv_{interv.key}",
+                #     help=interv.description,
+                #     format="%d%%",
+                # )
+                slider_key = f"sim_interv_{interv.key}"
+                if preset_values is not None:
+                    if slider_key not in st.session_state:
+                        st.session_state[slider_key] = int(default_slider_pos)
 
-                # Lever metadata strip
+                slider_pos = slider_pos = st.select_slider(
+                        label=interv.label,
+                        options=list(range(0, 101, 1)),
+                        key=slider_key,
+                        help=interv.description,
+                        )
+                slider_pos = default_slider_pos
+ 
+                # ── Derive intensity and cost from slider_pos ─────────────────
+                # intensity = Imin + (slider_pos / 100) × (Imax − Imin) = slider_pos
+                # cost      = intensity × cost_per_point_cr
+                intensity  = slider_pos_to_intensity(float(slider_pos))
+                # cost_at_pos = intensity_to_cost(interv.key, intensity) if cp else 0.0
+                cost_at_pos = slider_pos * 100 * cp.cost_per_point_cr
+ 
+                interventions[interv.key] = slider_pos
+ 
+                # ── Metadata strip ────────────────────────────────────────────
                 if cp:
-                    cost_at_val = compute_intervention_cost_cr(interv.key, val)
-                    sp_c  = _speed_color(cp.deployment_speed)
-                    fe_c  = _feas_color(interv.feasibility)
-                    at_limit = (
-                        budget_on and budget_cr and max_allow < 100
-                        and val >= max_allow
+                    sp_c = _speed_color(cp.deployment_speed)
+                    fe_c = _feas_color(interv.feasibility)
+ 
+                    # Budget warning: read LIVE slider state for other interventions
+                    # (session_state has current values for already-rendered sliders;
+                    # fall back to preset for not-yet-rendered ones)
+                    over_budget = False
+                    if budget_on and budget_cr and budget_cr > 0:
+                        live_other_cost = 0.0
+                        for other in INTERVENTIONS:
+                            if other.key == interv.key:
+                                continue
+                            sk = f"sim_interv_{other.key}"
+                            other_slider = float(
+                                st.session_state.get(
+                                    sk,
+                                    (preset_values or {}).get(other.key, 0.0),
+                                )
+                            )
+                            # other_intensity = slider_pos_to_intensity(other_slider)
+                            live_other_cost += slider_pos_to_cost(other.key, other_slider)
+                        over_budget = (live_other_cost + cost_at_pos) > budget_cr
+ 
+                    budget_warn = (
+                        "<span style='color:#E24B4A;font-size:10px'> ⛔ over budget</span>"
+                        if over_budget else ""
                     )
-                    limit_warn = (
-                        "<span style='color:#E24B4A;font-size:10px'>"
-                        " ⛔ budget limit</span>"
-                        if at_limit else ""
+ 
+                    # Show cost at max intensity as a reference hint
+                    cost_at_max = slider_pos_to_cost(interv.key, 100)
+                    max_hint = (
+                        f" <span style='color:#aaa'>(max ₹{cost_at_max:.1f} Cr @ 100%)</span>"
+                        if slider_pos < int(IMAX) else ""
                     )
+ 
                     st.markdown(
                         f"<div style='font-size:11px;color:#666;"
                         f"margin-top:-8px;margin-bottom:8px;padding-left:2px'>"
-                        f"₹{cost_at_val:.1f} Cr &nbsp;·&nbsp; "
+                        f"₹{cost_at_pos:.1f} Cr {max_hint} &nbsp;·&nbsp; "
                         f"<span style='color:{sp_c}'>{cp.deployment_speed}</span>"
                         f" deployment &nbsp;·&nbsp; "
                         f"<span style='color:{fe_c}'>"
                         f"{interv.feasibility.capitalize()}</span> feasibility"
-                        f"{limit_warn}</div>",
+                        f"{budget_warn}</div>",
                         unsafe_allow_html=True,
                     )
+ 
             st.markdown("")
         col_idx += 1
-
+ 
     return interventions
 
 
