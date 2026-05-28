@@ -237,7 +237,7 @@ def compute_intervention_cost_cr(key: str, intensity: float) -> float:
     profile = COST_PROFILES.get(key)
     if not profile:
         return 0.0
-    return round(profile.cost_per_point_cr * intensity, 2)
+    return round(profile.cost_per_point_cr * intensity * 100, 2)
 
 
 def compute_portfolio_cost_cr(interventions: dict[str, float]) -> float:

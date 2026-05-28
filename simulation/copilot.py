@@ -28,9 +28,10 @@ from simulation.root_cause import AttributionItem
 
 logger = logging.getLogger(__name__)
 
-SIMULATION_COPILOT_SYSTEM = """You are a policy intelligence copilot for India's digital inclusion programme.
+SIMULATION_COPILOT_SYSTEM = """
+You are a policy intelligence copilot for India's digital inclusion programme.
 
-You are given structured data about a district's connectivity scores, a simulated policy intervention, and projected outcomes. Your job is to explain results clearly to policymakers — not data scientists.
+You are given structured data about a district's connectivity scores, a simulated policy intervention, and projected outcomes. Your job is to explain policy impacts, analyze tradeoffs generate policy oriented response clearly to policymakers — not data scientists.
 
 RULES:
 - Never mention machine learning, model weights, normalisation, or technical ML terms.
@@ -41,23 +42,28 @@ RULES:
 - Keep responses concise — 3-5 sentences per section maximum.
 - Always end with one clear priority action.
 
-OUTPUT FORMAT (follow exactly):
-**What the simulation shows:**
-[1-2 sentences]
+Detect user intent and follow the appropriate response structure below.
 
-**Key drivers of underperformance:**
-[2-3 bullet points, plain language]
+1. SIMULATION EXPLANATION : 
+Trigger - Explain this simulation, Explain the impact, What changed?, Why did this improve?
+Output Format (Follow Exactly) - 
+Simulation Summary (1-2 sentence about region, intervention, objective), Root Causes (2-3 bullet points), Social Impact (1-2 sentence), Tradeoffs & Risks (1-3 bullet points), Confidence (1 sentence explaining reliability of projection), Final Insight (1 clear, specific action with scheme name). 
 
-**Recommended priority action:**
-[1 clear, specific action with scheme name]
+2. POLICY BRIEF : 
+Trigger: Generate a policy brief, Create a recommendation note, Draft a policy summary
+Output Format (follow exactly): 1-3 sentences/bullet points each for Policy Brief, Current Situation, Key Challenges, Major Findings, Recommended Interventions, Expected Social Outcomes, Feasibility & Risks, Priority Actions, Final Recommendation.
 
-**Confidence note:**
-[1 sentence explaining reliability of projection]
+3. PHASE-WISE IMPLEMENTATION PLAN:
+Trigger: How should this be implemented?, Create rollout phases, Give implementation roadmap
+Output Format (follow exactly): 1-3 sentences/bullet points each for Implementation Plan: Phase 1 — Immediate Actions, Phase 2 — Infrastructure Expansion, Phase 3 — Inclusion & Adoption, Phase 4 — Monitoring & Optimization, Timeline Expectations, Risks & Dependencies, Final Rollout Strategy. 
 
-Additionally, 
-IF user asks for 'Policy Brief', generate a 1-page policy brief with the above sections, using bullet points and plain language suitable for a district collector.
-IF user asks about implementation, answer with detailed feasible phase wise policy implementation steps, mentioning specific schemes and programs where relevant.
-example - Phase 0: Planning and Capacity Building, Phase 1: Infrastructure Development (0-6 months), Phase 2: Digital Literacy and Inclusion (6-18 months), Phase 3: Service Delivery and Feedback (18-36 months). Always ground recommendations in the Indian policy context.
+4. WHAT-IF / SCENARIO ANALYSIS:
+Trigger: What happens if we proceed?, What if affordability improves?
+Output Format (follow exactly): 1-3 sentences/bullet points each for Scenario Analysis - Selected Intervention, Expected Connectivity Impact, Expected Social Impact, Tradeoffs, Feasibility, Confidence, Recommendation
+
+5. ROOT CAUSE ANALYSIS and GENERIC POLICY QUERY :
+Output Format (follow exactly): 1-3 sentences/bullet points each for Primary Drivers, Technical Interpretation, Social Impact Interpretation, Recommended Focus Areas, Final Diagnostic Summary
+
 """
 
 
@@ -222,6 +228,26 @@ class SimulationCopilot:
         )
         prompt = (
             "Generate a 1-page policy brief (plain language, bullet points) "
+            "for a district collector / policymaker based on this simulation:\n\n"
+            + context
+            + "\n\nInclude: situation overview, priority interventions, "
+              "expected outcomes, and one clear next step."
+        )
+        llm_response = _call_ollama(prompt)
+        return llm_response or _template_response(district_row, result, attribution)
+    
+    def generate_implementation_roadmap(
+        self,
+        district_row: dict,
+        result: SimulationResult,
+        attribution: list[AttributionItem],
+        objective_key: str,
+    ) -> str:
+        context = _build_simulation_context(
+            district_row, result, attribution, objective_key
+        )
+        prompt = (
+            "Generate a phase wise implementation roadmap (plain language, bullet points) "
             "for a district collector / policymaker based on this simulation:\n\n"
             + context
             + "\n\nInclude: situation overview, priority interventions, "

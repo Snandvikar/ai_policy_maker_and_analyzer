@@ -252,9 +252,9 @@ def _render_constraints_panel(objective_key: str) -> tuple[bool, float | None, s
                 budget_cr = st.number_input(
                     "Total budget (₹ Crore)",
                     min_value=1.0,
-                    max_value=5000.0,
+                    max_value=999999999.0,
                     value=100.0,
-                    step=10.0,
+                    step=1.0,
                     key="budget_input",
                     format="%.0f",
                 )
@@ -400,6 +400,11 @@ def _render_intervention_panel(
         "Social":          "🤝",
     }
  
+    # Consumed once per rerun; True only on the rerun immediately after
+    # "Generate Optimal Policy" fires, so the optimizer's fresh allocations
+    # are written even though all sim_interv_* keys already exist.
+    fresh = st.session_state.pop("sim_preset_fresh", False)
+
     cols = st.columns(2)
     col_idx = 0
  
@@ -438,16 +443,19 @@ def _render_intervention_panel(
                 # )
                 slider_key = f"sim_interv_{interv.key}"
                 if preset_values is not None:
-                    if slider_key not in st.session_state:
+                    # `fresh` is True on the single rerun that follows "Generate
+                    # Optimal Policy", ensuring the optimizer's new allocations
+                    # overwrite stale session-state values that would otherwise
+                    # block the preset from taking effect.
+                    if slider_key not in st.session_state or fresh:
                         st.session_state[slider_key] = int(default_slider_pos)
 
-                slider_pos = slider_pos = st.select_slider(
+                slider_pos = st.select_slider(
                         label=interv.label,
                         options=list(range(0, 101, 1)),
                         key=slider_key,
                         help=interv.description,
                         )
-                slider_pos = default_slider_pos
  
                 # ── Derive intensity and cost from slider_pos ─────────────────
                 # intensity = Imin + (slider_pos / 100) × (Imax − Imin) = slider_pos
@@ -488,11 +496,16 @@ def _render_intervention_panel(
                         if over_budget else ""
                     )
  
-                    # Show cost at max intensity as a reference hint
+                    # Show cost at max intensity as a reference hint only when
+                    # the slider is not already at its ceiling.
+                    # Must compare to 100 (slider upper bound), NOT int(IMAX)=10000.
+                    # IMAX is the intensity domain bound; slider_pos is always 0–100,
+                    # so slider_pos < int(IMAX) was always True, making the hint
+                    # permanently visible even at full deployment.
                     cost_at_max = slider_pos_to_cost(interv.key, 100)
                     max_hint = (
                         f" <span style='color:#aaa'>(max ₹{cost_at_max:.1f} Cr @ 100%)</span>"
-                        if slider_pos < int(IMAX) else ""
+                        if slider_pos < 100 else ""
                     )
  
                     st.markdown(
@@ -801,7 +814,7 @@ def _render_copilot(
     if "copilot_history" not in st.session_state:
         st.session_state.copilot_history = []
 
-    qa_cols = st.columns(3)
+    qa_cols = st.columns(4)
     if qa_cols[0].button("📄 Generate policy brief", key="copilot_brief"):
         with st.spinner("Generating..."):
             resp = st.session_state.copilot.generate_policy_brief(
@@ -817,8 +830,16 @@ def _render_copilot(
             )
         st.session_state.copilot_history.append({"role": "assistant", "content": resp})
         st.rerun()
+    
+    if qa_cols[2].button("📄 Generate implementation roadmap", key="copilot_roadmap"):
+        with st.spinner("Generating..."):
+            resp = st.session_state.copilot.generate_implementation_roadmap(
+                district_row, result, attribution, objective_key
+            )
+        st.session_state.copilot_history.append({"role": "assistant", "content": resp})
+        st.rerun()
 
-    if qa_cols[2].button("🔄 Clear", key="copilot_clear"):
+    if qa_cols[3].button("🔄 Clear", key="copilot_clear"):
         st.session_state.copilot_history = []
         st.rerun()
 
@@ -880,8 +901,8 @@ def _render_analyst_mode(
         )
         ac[1].markdown(
             "- Cost: ₹ Cr/point, linear with intensity\n"
-            "- Baseline: latest year in mci_scores\n"
-            "- Factor formulas mirror mci_pipeline.py exactly\n"
+            "- Baseline: latest year present for MCI score\n"
+            "- Factor formulas mirror MCI calculations exactly\n"
         )
 
         st.markdown("**Compare two intervention packages:**")
