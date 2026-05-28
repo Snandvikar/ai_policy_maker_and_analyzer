@@ -1,14 +1,16 @@
 """
 dashboard/chatbot.py
 =====================
-Chatbot UI component.
 
-Schema alignment:
-  Area context uses districtname + canonical_state (not city + area).
-  Example queries updated to district/state level language.
+Modern Floating Popup Chatbot
+- Stable, non-breaking layout canvas integration
+- Seamless Obsidian dark palette formatting across elements
+- Clean, padded top header typography alignment
 """
 
 from __future__ import annotations
+
+import time
 import streamlit as st
 import pandas as pd
 
@@ -16,69 +18,105 @@ from config import DB_PATH
 from agents.Orchestrator import Orchestrator
 from dashboard.charts import dynamic_chart
 
+# =========================================================
+# FLOAT SUPPORT
+# =========================================================
+
+from streamlit_float import *
+
+float_init()
+
+# =========================================================
+# CONFIG
+# =========================================================
 
 AGENT_ICONS = {
-    "Data Query Agent":       "🔍",
-    "Policy Suggestion Agent": "💡",
+    "Data Query Agent": "🎰",
+    "Policy Suggestion Agent": "🏛️",
 }
 
 EXAMPLE_QUERIES = [
-    "Which districts have the lowest MCI?",
-    "Show MCI trend for districts in Maharashtra",
-    "Compare women safety scores across states",
-    "Why is this district performing poorly?",
-    "What should we improve in the selected district?",
-    "Which districts have high safety risk and low employment?",
-    "Show all severe digital deserts",
+    "Lowest MCI districts",
+    "Maharashtra MCI trends",
+    "Women safety comparison",
+    "Why is this district poor?",
 ]
 
+# =========================================================
+# INIT CHAT
+# =========================================================
 
-def _init_chat():
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
-    if "orchestrator" not in st.session_state:
-        st.session_state.orchestrator = Orchestrator(db_path=DB_PATH)
+def _init_chat(mode="popup"):
+    history_key = f"{mode}_chat_history"
+    orchestrator_key = f"{mode}_orchestrator"
 
+    if history_key not in st.session_state:
+        st.session_state[history_key] = []
+
+    if orchestrator_key not in st.session_state:
+        st.session_state[orchestrator_key] = Orchestrator(db_path=DB_PATH)
+
+    return history_key, orchestrator_key
+
+
+# =========================================================
+# MESSAGE RENDERER
+# =========================================================
 
 def _render_message(msg: dict):
     role = msg["role"]
+
     if role == "user":
         with st.chat_message("user"):
             st.markdown(msg["content"])
         return
 
     result = msg.get("result", {})
-    agent  = result.get("agent", "Assistant")
-    icon   = AGENT_ICONS.get(agent, "🤖")
+    agent = result.get("agent", "Assistant")
+    icon = AGENT_ICONS.get(agent, "🤖")
 
     with st.chat_message("assistant", avatar=icon):
-        st.caption(
-            f"**{agent}**"
-            + (" _(keyword fallback)_" if result.get("used_fallback") else "")
-        )
+        st.caption(agent)
 
         intent = result.get("intent", "")
-        error  = result.get("error", "")
+        error = result.get("error", "")
 
         if error:
-            st.error(f"Error: {error}")
+            st.error(error)
             return
 
         if intent == "data_query":
-            df         = result.get("data")
+            df = result.get("data")
             chart_type = result.get("chart_type", "table")
-            sql        = result.get("sql", "")
+            sql = result.get("sql", "")
+            summary = result.get("summary", "")
 
-            st.markdown(result.get("summary", ""))
+            if summary:
+                st.markdown(summary)
 
             if df is not None and not df.empty:
+                if "year" in df.columns and df["year"].nunique() <= 1:
+                    chart_type = "table"
+
                 if chart_type not in ("table", "none"):
                     fig = dynamic_chart(df, chart_type)
                     if fig:
-                        st.plotly_chart(fig, use_container_width=True)
+                        fig.update_layout(
+                            autosize=True,
+                            height=200,
+                            margin=dict(l=20, r=10, t=20, b=20),
+                            paper_bgcolor="#111827",
+                            plot_bgcolor="#111827",
+                            font=dict(color="#e5e7eb"),
+                            xaxis=dict(tickangle=-45, automargin=True, gridcolor="rgba(255,255,255,0.05)"),
+                            yaxis=dict(automargin=True, gridcolor="rgba(255,255,255,0.05)"),
+                        )
+                        st.plotly_chart(fig, use_container_width=True, config={"responsive": True})
+
                 st.dataframe(
-                    df, use_container_width=True,
-                    height=min(300, (len(df) + 1) * 36),
+                    df.head(50),
+                    use_container_width=True,
+                    height=min(200, (len(df) + 1) * 35 + 10),
                 )
 
             if sql:
@@ -93,74 +131,195 @@ def _render_message(msg: dict):
             suggestions = result.get("suggestions", [])
             if suggestions:
                 st.markdown("---")
-                st.markdown("**Rule-based intervention checklist:**")
-                priority_icons = {1: "🔴", 2: "🟡", 3: "🟢"}
                 for s in suggestions:
-                    st.markdown(
-                        f"{priority_icons.get(s.priority,'⚪')} "
-                        f"**{s.short_title}**  \n{s.action}"
-                    )
-                    if s.scheme_or_program:
-                        st.caption(f"Scheme: {s.scheme_or_program}")
+                    st.info(f"**{s.short_title}**\n\n{s.action}")
         else:
             st.markdown(result.get("markdown", result.get("summary", "")))
 
 
-def render_chatbot(selected_area_scores: dict = None):
-    """
-    Renders the full chatbot UI.
+# =========================================================
+# MAIN POPUP CHATBOT
+# =========================================================
 
-    selected_area_scores: dict from mci_scores for the currently selected
-    district. Uses districtname + canonical_state for context labels.
-    """
-    _init_chat()
+def render_chatbot(selected_area_scores: dict = None, mode: str = "popup"):
+    history_key, orchestrator_key = _init_chat(mode)
+    popup_open_key = "dashboard_popup_open"
 
-    st.markdown("---")
-    st.markdown("### 💬 Ask the MCI Assistant")
+    if popup_open_key not in st.session_state:
+        st.session_state[popup_open_key] = False
 
-    if selected_area_scores:
-        district = selected_area_scores.get("districtname", "")
-        state    = selected_area_scores.get("statename", "")
-        label    = f"{district}, {state}" if district else "(selected district)"
-        st.info(
-            f"📍 **Context:** {label} is selected. "
-            "Policy questions will automatically use this district's scores.",
-            icon="ℹ️",
+    # Floating Action Trigger Button
+    btn = st.container()
+    with btn:
+        if st.button("💬", key="floating_chat_toggle", use_container_width=True):
+            st.session_state[popup_open_key] = not st.session_state[popup_open_key]
+
+    btn.float(
+        css="""
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            z-index: 999999;
+        """
+    )
+
+    if not st.session_state[popup_open_key]:
+        return
+
+    # Master UI Outer Framework Panel Container
+    popup = st.container()
+    with popup:
+        st.markdown(
+            """
+            <style>
+            /* 1. COMPACT WRAPPER CANVAS OVERRIDES */
+            div[data-testid="stVerticalBlock"] div:has(> .popup-header) {
+                background-color: #0b111e !important;
+                border-radius: 16px !important;
+                border: 1px solid rgba(255, 255, 255, 0.08) !important;
+                box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6) !important;
+                padding: 0px !important;
+                margin: 0px !important;
+            }
+
+            /* Elegant Top Panel Header Layout */
+            .popup-header {
+                padding: 16px 20px;
+                background-color: #0e1726 !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+                font-size: 16px;
+                font-weight: 600;
+                color: #ffffff !important;
+                border-top-left-radius: 15px;
+                border-top-right-radius: 15px;
+            }
+
+            /* 2. CHAT INPUT BAR CONFIGURATIONS & RECONCILED STYLING */
+            /* Target the specific chat position overlay inside the floating element context */
+            div[data-testid="stChatInputFormContainer"] {
+                background-color: #0e1726 !important;
+                border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+                padding: 12px 16px !important;
+                position: fixed !important;
+                bottom: 100px !important;
+                right: 32px !important;
+                width: min(84vw, 436px) !important;
+                box-sizing: border-box !important;
+                z-index: 999999 !important;
+                border-bottom-left-radius: 16px !important;
+                border-bottom-right-radius: 16px !important;
+            }
+
+            /* Custom text input field texture controls */
+            div[data-testid="stChatInputFormContainer"] textarea {
+                background-color: #151f32 !important;
+                color: #ffffff !important;
+                border: 1px solid rgba(255, 255, 255, 0.08) !important;
+                border-radius: 8px !important;
+            }
+
+            /* High contrast layout style for message logs */
+            .stChatMessage {
+                background-color: #111827 !important;
+                border: 1px solid rgba(255, 255, 255, 0.04) !important;
+                border-radius: 12px !important;
+                padding: 12px !important;
+                margin-bottom: 8px;
+            }
+
+            /* Option chips formatting buttons styling */
+            .stButton button {
+                background-color: #151f32 !important;
+                border: 1px solid rgba(255, 255, 255, 0.08) !important;
+                border-radius: 8px !important;
+                color: #e5e7eb !important;
+                font-size: 13px !important;
+            }
+            .stButton button:hover {
+                background-color: #1c2a45 !important;
+                border-color: rgba(255, 255, 255, 0.2) !important;
+                color: #ffffff !important;
+            }
+            
+            /* Status Filter Info Boxes Adjustments */
+            div[data-testid="stNotification"] {
+                background-color: rgba(30, 58, 138, 0.4) !important;
+                color: #bfdbfe !important;
+                border: 1px solid rgba(59, 130, 246, 0.2) !important;
+                border-radius: 8px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
         )
 
-    # Example query chips
-    st.caption("Try an example:")
-    chip_cols = st.columns(4)
-    for i, q in enumerate(EXAMPLE_QUERIES[:4]):
-        if chip_cols[i % 4].button(q, key=f"chip_{i}", use_container_width=True):
-            st.session_state._pending_input = q
+        # Render Header Content Card
+        st.markdown('<div class="popup-header">🏛️ Ask the MCI Assistant</div>', unsafe_allow_html=True)
 
-    # Render message history
-    for msg in st.session_state.chat_history:
-        _render_message(msg)
+        if selected_area_scores:
+            district = selected_area_scores.get("districtname", "")
+            state = selected_area_scores.get("statename", "")
+            if district:
+                st.info(f"Context Filter: {district}, {state}", icon="🍑")
 
-    # Handle chip-triggered input
-    pending    = st.session_state.pop("_pending_input", None)
-    user_input = st.chat_input(
-        "Ask about data, trends, or policy recommendations..."
-    ) or pending
+        # =========================================================
+        # INTERNAL LOG SCROLL WINDOW (STABLE STRUCTURE)
+        # =========================================================
+        # Set explicitly to 440 to avoid breaking structural space boundaries
+        with st.container(height=440, border=False):
+            st.caption("Quick Questions")
+            cols = st.columns(2)
+            for i, q in enumerate(EXAMPLE_QUERIES):
+                if cols[i % 2].button(q, key=f"{mode}_chip_{i}", use_container_width=True):
+                    st.session_state[f"{mode}_pending_input"] = q
 
-    if user_input:
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
+            st.write("")
 
-        with st.spinner("Thinking..."):
-            result = st.session_state.orchestrator.handle(
-                message=user_input,
-                selected_area_scores=selected_area_scores,
-            )
+            for msg in st.session_state[history_key]:
+                _render_message(msg)
+            
+            # Bottom offset structural margin so history messages aren't hidden behind the text input bar
+            st.write("<div style='margin-bottom: 70px;'></div>", unsafe_allow_html=True)
 
-        st.session_state.chat_history.append({
-            "role": "assistant",
-            "result": result,
-        })
-        st.rerun()
+        # =========================================================
+        # PROMPT ENTRY FIELD
+        # =========================================================
+        pending = st.session_state.pop(f"{mode}_pending_input", None)
+        user_input = st.chat_input("Ask about districts, trends, policy...", key=f"{mode}_chat_input") or pending
 
-    if st.session_state.chat_history:
-        if st.button("Clear chat", key="clear_chat"):
-            st.session_state.chat_history = []
+        if user_input:
+            st.session_state[history_key].append({
+                "role": "user",
+                "content": user_input,
+                "timestamp": time.time(),
+            })
+
+            with st.spinner("Thinking..."):
+                result = st.session_state[orchestrator_key].handle(
+                    message=user_input,
+                    selected_area_scores=selected_area_scores,
+                )
+
+            st.session_state[history_key].append({
+                "role": "assistant",
+                "result": result,
+                "timestamp": time.time(),
+            })
             st.rerun()
+
+    # Float panel base frame container positioning configurations
+    popup.float(
+        css="""
+            position: fixed;
+            bottom: 96px;
+            right: 24px;
+            width: min(92vw, 460px);
+            height: 550px;
+            background-color: #0b111e !important;
+            border-radius: 16px;
+            overflow: hidden;
+            z-index: 999998;
+        """
+    )

@@ -400,7 +400,8 @@ with tab_dashboard:
     # ── Chatbot ─────────────────────────────────────────────────────────────
 
     render_chatbot(
-        selected_area_scores=selected_area_scores
+        selected_area_scores=selected_area_scores,
+        mode="popup",
     )
 
     st.markdown("---")
