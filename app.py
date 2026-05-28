@@ -62,7 +62,7 @@ with tab_dashboard:
 
     st.markdown(
         "*AI-powered district analytics for digital inclusion, "
-        "women’s safety & connectivity policy simulation across India.*  \n"
+        "women’s safety & connectivity policy simulation across India.* \n"
         "**Coverage:** State × District"
     )
 
@@ -320,54 +320,77 @@ with tab_dashboard:
             use_container_width=True,
         )
 
+        # Dropdown component to select the state filter
+        unique_states = sorted(scores_df["statename"].dropna().unique().tolist())
+        selected_state = st.selectbox(
+            "Regional Gap Insights", 
+            ["All India"] + unique_states,
+            key="cluster_state_filter"
+        )
+
+        # Mapping color hexes to align with visual priorities
         CLUSTER_COLORS = [
-            "#E24B4A",
-            "#EF9F27",
-            "#378ADD",
-            "#7F77DD",
-            "#1D9E75",
-            "#639922",
-            "#D4537E",
+            "#E24B4A",  # Infrastructure gap (severe)
+            "#EF9F27",  # Digital literacy gap (moderate)
+            "#378ADD",  # Infrastructure gap (moderate)
+            "#639922",  # Infrastructure gap (mild)
+            "#7F77DD",  
+            "#1D9E75",  
+            "#D4537E",  
         ]
 
+        # Calculate layout configurations dynamically
         n_cls = min(3, len(cluster_df))
-
         c_cols = st.columns(n_cls)
 
         for i, (_, cl) in enumerate(cluster_df.iterrows()):
-
             cc = CLUSTER_COLORS[i % len(CLUSTER_COLORS)]
+            
+            # Extract basic card context elements
+            title_text = cl['label']
+            
+            if selected_state == "All India":
+                count_val = cl['area_count']
+                score_val = cl['mean_score']
+            else:
+                # Dynamically count districts belonging to this cluster profile within the selected state
+                state_districts = scores_df[
+                    (scores_df["statename"] == selected_state) & 
+                    (scores_df["cluster_label"] == title_text)
+                ]
+                count_val = len(state_districts)
+                score_val = state_districts["MCI"].mean() if count_val else 0.0
+
+            subtitle_text = f"{count_val} district{'s' if count_val != 1 else ''} · avg score {score_val:.0f}"
 
             with c_cols[i % n_cls]:
-
+                # Render only customized Title and Subtitle cards styled exactly like the original interface
                 st.markdown(
-                    f"<div style='border-left:3px solid {cc};"
-                    f"padding:.6rem .8rem;"
-                    f"background:{cc}08;"
-                    f"border-radius:0 8px 8px 0;"
-                    f"margin-bottom:8px'>"
-
-                    f"<div style='font-size:13px;"
-                    f"font-weight:600;"
-                    f"color:{cc}'>"
-                    f"{cl['label']}</div>"
-
-                    f"<div style='font-size:11px;"
-                    f"color:gray;"
-                    f"margin:.3rem 0'>"
-                    f"{cl['area_count']} district"
-                    f"{'s' if cl['area_count'] != 1 else ''} · "
-                    f"avg score {cl['mean_score']:.0f}</div>"
-
-                    f"<div style='font-size:12px;"
-                    f"margin-bottom:.4rem'>"
-                    f"{cl['intervention']}</div>"
-
-                    f"<div style='font-size:11px;"
-                    f"color:gray'>"
-                    f"Districts: {cl['area_list']}</div>"
-
-                    f"</div>",
+                    f"""
+                    <div style='
+                        border-left: 4px solid {cc};
+                        padding: 0.8rem 1rem;
+                        background: #11151F;
+                        border-radius: 0 8px 8px 0;
+                        margin-bottom: 12px;
+                        min-height: 75px;
+                    '>
+                        <div style='
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: {cc};
+                            margin-bottom: 3px;
+                        '>
+                            {title_text}
+                        </div>
+                        <div style='
+                            font-size: 11px;
+                            color: #8A94A6;
+                        '>
+                            {subtitle_text}
+                        </div>
+                    </div>
+                    """,
                     unsafe_allow_html=True,
                 )
 
