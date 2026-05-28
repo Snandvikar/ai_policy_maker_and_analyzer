@@ -409,7 +409,7 @@ with tab_dashboard:
         # Dropdown component to select the state filter
         unique_states = sorted(scores_df["statename"].dropna().unique().tolist())
         selected_state = st.selectbox(
-            "Regional Gap Insights", 
+            "Filter Gap Cards by State", 
             ["All India"] + unique_states,
             key="cluster_state_filter"
         )
@@ -510,7 +510,6 @@ with tab_dashboard:
 
     render_chatbot(
         selected_area_scores=selected_area_scores,
-        mode="popup",
     )
 
     st.markdown("---")
