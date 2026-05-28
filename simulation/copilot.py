@@ -277,7 +277,7 @@ class SimulationCopilot:
             + "\n\nInclude: situation overview, priority interventions, "
               "expected outcomes, and one clear next step."
         )
-        llm_response = _call_ollama(prompt)
+        llm_response = _call_llm(prompt)
         return llm_response or _template_response(district_row, result, attribution)
 
     def answer_question(
